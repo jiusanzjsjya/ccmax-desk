@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { env } from "@/lib/env";
+import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
 import { acquireProvisioningFlow, deleteProvisioningFlow, releaseProvisioningFlow } from "@/lib/provisioning-state";
 import { getCurrentSession } from "@/lib/session";
 import { createClaudeAccount, exchangeClaudeCode, Sub2ApiError } from "@/lib/sub2api";
@@ -33,6 +34,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const normalizedCode = normalizeClaudeAuthCode(parsed.data.code);
+  if (!isValidClaudeAuthCode(normalizedCode)) {
+    return NextResponse.json(
+      { error: "授权回执格式不正确，请粘贴完整的 code#state 或回调 URL" },
+      { status: 400 },
+    );
+  }
+
   const flow = acquireProvisioningFlow(parsed.data.flowId, session.sessionId);
 
   if (!flow) {
@@ -42,7 +51,7 @@ export async function POST(request: Request) {
   try {
     const tokenInfo = await exchangeClaudeCode({
       sessionId: flow.sub2SessionId,
-      code: parsed.data.code,
+      code: normalizedCode,
     });
 
     if (!tokenInfo || typeof tokenInfo.access_token !== "string" || !tokenInfo.access_token) {

@@ -16,21 +16,32 @@ export type ClaudeTokenInfo = {
 export type Sub2ApiAccountSummary = {
   id: number | string | null;
   name: string | null;
+  email: string | null;
   platform: string;
   type: string;
   status: string;
   schedulable: boolean | null;
   errorMessage: string | null;
+  createdAt: string | null;
 };
 
 type RawSub2ApiAccount = {
   id?: number | string;
   name?: string;
+  email?: string;
+  email_address?: string;
   platform?: string;
   type?: string;
   status?: string;
   schedulable?: boolean;
   error_message?: string | null;
+  created_at?: string;
+};
+
+type RawSub2ApiAccountList = {
+  items?: RawSub2ApiAccount[];
+  accounts?: RawSub2ApiAccount[];
+  total?: number;
 };
 
 export class Sub2ApiError extends Error {
@@ -95,6 +106,28 @@ export async function createClaudeAccount(input: {
   return summarizeAccount(response);
 }
 
+export async function listClaudeAccounts() {
+  const config = getSub2ApiConfig();
+  const query = new URLSearchParams({
+    page: "1",
+    page_size: "50",
+    platform: "anthropic",
+    type: "oauth",
+    lite: "true",
+    sort_by: "created_at",
+    sort_order: "desc",
+  });
+  const result = await request<RawSub2ApiAccountList | RawSub2ApiAccount[]>(config, `/api/v1/admin/accounts?${query}`, {
+    method: "GET",
+  });
+  const items = Array.isArray(result) ? result : result.items || result.accounts || [];
+
+  return {
+    items: items.map(summarizeAccount),
+    total: Array.isArray(result) ? items.length : result.total ?? items.length,
+  };
+}
+
 type GenerateAuthUrlResponse = {
   auth_url: string;
   session_id: string;
@@ -156,11 +189,13 @@ function summarizeAccount(value: RawSub2ApiAccount) {
   return {
     id: value?.id ?? null,
     name: value?.name ?? null,
+    email: value?.email ?? value?.email_address ?? null,
     platform: value?.platform ?? "anthropic",
     type: value?.type ?? "oauth",
     status: value?.status ?? "active",
     schedulable: value?.schedulable ?? null,
     errorMessage: value?.error_message ?? null,
+    createdAt: value?.created_at ?? null,
   } satisfies Sub2ApiAccountSummary;
 }
 

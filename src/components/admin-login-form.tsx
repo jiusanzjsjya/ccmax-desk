@@ -27,6 +27,7 @@ export default function AdminLoginForm({ configured }: { configured: boolean }) 
         return;
       }
 
+      router.push("/dashboard");
       router.refresh();
     } catch {
       setError("无法连接登录服务，请检查本地服务状态。");
