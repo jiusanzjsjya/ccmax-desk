@@ -4,22 +4,31 @@ import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
+import { roleValues, type Role } from "@/lib/roles";
 
 const sessionCookieName = "ccmax_admin_session";
 const sessionLifetimeSeconds = 60 * 60 * 24 * 7;
 
 export type AdminSession = {
   sessionId: string;
-  role: "admin";
+  userId: string;
+  username: string;
+  displayName: string;
+  role: Role;
   issuedAt: number;
   expiresAt: number;
 };
 
-export function createAdminSession() {
+export function createAdminSession(identity: {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: Role;
+}) {
   const issuedAt = Math.floor(Date.now() / 1000);
   const session: AdminSession = {
     sessionId: randomUUID(),
-    role: "admin",
+    ...identity,
     issuedAt,
     expiresAt: issuedAt + sessionLifetimeSeconds,
   };
@@ -42,19 +51,44 @@ export function readAdminSession(value: string | undefined): AdminSession | null
   }
 
   try {
-    const session = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as AdminSession;
+    const session = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<AdminSession> & { role?: string };
+    const role = session.role === "admin" ? "superadmin" : session.role;
+    const now = Math.floor(Date.now() / 1000);
+
+    // Sessions issued before local account RBAC used only the admin role and timestamps.
+    if (
+      session.role === "admin" &&
+      !session.userId &&
+      typeof session.sessionId === "string" &&
+      typeof session.issuedAt === "number" &&
+      typeof session.expiresAt === "number" &&
+      session.expiresAt > now
+    ) {
+      return {
+        sessionId: session.sessionId,
+        userId: "env-superadmin",
+        username: "superadmin",
+        displayName: "超级管理员",
+        role: "superadmin",
+        issuedAt: session.issuedAt,
+        expiresAt: session.expiresAt,
+      };
+    }
 
     if (
       typeof session.sessionId !== "string" ||
-      session.role !== "admin" ||
+      typeof session.userId !== "string" ||
+      typeof session.username !== "string" ||
+      typeof session.displayName !== "string" ||
+      !roleValues.includes(role as Role) ||
       typeof session.issuedAt !== "number" ||
       typeof session.expiresAt !== "number" ||
-      session.expiresAt <= Math.floor(Date.now() / 1000)
+      session.expiresAt <= now
     ) {
       return null;
     }
 
-    return session;
+    return { ...session, role } as AdminSession;
   } catch {
     return null;
   }

@@ -4,6 +4,7 @@ out/
 .env
 .env.*
 !.env.example
+.data/
 .playwright-cli/
 *.log
 npm-debug.log*

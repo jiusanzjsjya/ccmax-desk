@@ -1,16 +1,18 @@
 import { redirect } from "next/navigation";
 
+import AccountManagementPanel from "@/components/account-management-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
+import { accountPoolAccess, getAccessContext } from "@/lib/access";
 import { env } from "@/lib/env";
-import { getCurrentSession } from "@/lib/session";
+import { roleLabel } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const session = await getCurrentSession();
+  const context = await getAccessContext();
 
-  if (!session) {
+  if (!context) {
     redirect("/");
   }
 
@@ -49,7 +51,7 @@ export default async function DashboardPage() {
           <div className="form-card wide">
             <div className="panel-heading-row">
               <div>
-                <p className="label">管理员工作台</p>
+                <p className="label">{roleLabel(context.role)}工作台</p>
                 <h2>接入 Claude 账号</h2>
               </div>
               <LogoutButton />
@@ -60,7 +62,9 @@ export default async function DashboardPage() {
             <ProvisioningPanel
               adminConfigured={env.isAdminConfigured}
               sub2ApiConfigured={env.isSub2ApiConfigured}
+              canViewAccountPool={accountPoolAccess(context)}
             />
+            {context.role !== "user" ? <AccountManagementPanel role={context.role} /> : null}
           </div>
         </div>
       </section>

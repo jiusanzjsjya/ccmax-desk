@@ -51,6 +51,30 @@ export class Sub2ApiError extends Error {
   }
 }
 
+export function mapSub2ApiError(error: unknown, fallback: string) {
+  if (error instanceof Sub2ApiError) {
+    const isAuthenticationFailure = error.status === 401 || error.status === 403;
+    return {
+      status: isAuthenticationFailure
+        ? 502
+        : error.status && error.status >= 400 && error.status < 500
+          ? error.status
+          : 502,
+      body: {
+        error: isAuthenticationFailure
+          ? "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。"
+          : error.message,
+        code: isAuthenticationFailure ? "sub2api_auth_failed" : error.code,
+      },
+    };
+  }
+
+  return {
+    status: 502,
+    body: { error: fallback },
+  };
+}
+
 export async function generateClaudeAuthUrl() {
   const config = getSub2ApiConfig();
   const result = await request<GenerateAuthUrlResponse>(config, "/api/v1/admin/accounts/generate-auth-url", {

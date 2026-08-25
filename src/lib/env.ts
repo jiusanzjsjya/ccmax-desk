@@ -11,6 +11,7 @@ const envSchema = z.object({
   ADMIN_ACCESS_KEY: z.string().default(""),
   SUB2API_BASE_URL: z.string().url().default("http://localhost:8080"),
   SUB2API_ADMIN_TOKEN: z.string().default(""),
+  LOCAL_ACCOUNT_STORE_PATH: z.string().min(1).default(".data/accounts.json"),
   SUB2API_PROXY_ID: z.preprocess(
     (value) => (value === "" || value === undefined ? undefined : value),
     z.coerce.number().int().positive().optional(),

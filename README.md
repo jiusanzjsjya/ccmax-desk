@@ -241,7 +241,7 @@ Sub2API 的转发层还会根据账号类型处理 Claude OAuth 所需的模型�
                             └──────────────────────┘
 ```
 
-第一阶段建议只实现“管理端代办授权 + 创建账号”，不做普通用户注册，不做账号密码采集，不做 Cookie 自动授权。
+第一阶段只实现“本地账号登录 + 管理端代办授权 + 创建 Sub2API 账号”，不做公开注册，不收集 Claude 密码，不做 Cookie 自动授权。
 
 ## 8. 当前代码与真实目标的差异
 
@@ -250,13 +250,28 @@ Sub2API 的转发层还会根据账号类型处理 Claude OAuth 所需的模型�
 - `src/lib/sub2api.ts` 负责调用 Sub2API 的授权 URL、授权码兑换和账号创建接口。
 - `src/lib/provisioning-state.ts` 将本项目流程 ID 与 Sub2API `session_id` 关联，目前状态保存在进程内存。
 - `src/app/api/auth/admin/login` 使用 `ADMIN_ACCESS_KEY` 建立本项目管理员会话。
+- `src/lib/account-store.ts` 提供本地账号、系统开关和审计记录存储，密码只保存为 `scrypt` 哈希。
+- `src/lib/roles.ts` 与 `src/lib/access.ts` 提供 `superadmin`、`admin`、`user` 三种角色的服务端权限校验。
 - `src/app/api/provisioning/claude/start` 生成授权 URL。
 - `src/app/api/provisioning/claude/complete` 在服务端兑换授权码并立即创建 `anthropic/oauth` 账号，浏览器只得到账号摘要。
 - `src/components/provisioning-panel.tsx` 提供授权 URL、授权码、账号名称、备注和分组 ID 的管理界面。
+- `src/components/account-management-panel.tsx` 提供本地账号创建、角色管理、系统开关和超级管理员审计视图。
 
-当前仍未完成的生产能力包括 PostgreSQL/Redis 持久化、多实例流程锁、细粒度管理员角色、Sub2API token 轮换、审计日志和真实环境端到端测试。
+当前仍未完成的生产能力包括 PostgreSQL/Redis 持久化、多实例流程锁、Sub2API token 轮换和真实环境端到端测试。本地 `.data/accounts.json` 适合单机 MVP，不适合多实例生产部署。
 
-## 9. 后续代码改造边界
+### 8.1 本地账号权限模型
+
+| 角色 | 能力 |
+| --- | --- |
+| `superadmin` | 由 `ADMIN_ACCESS_KEY` 引导登录；可创建管理员/普通用户、修改角色、启停/删除本地账号、修改全部系统开关、查看账号池和审计记录、执行上号 |
+| `admin` | 使用本地账号密码登录；可创建普通用户，执行上号，并在开关允许时查看 Sub2API 账号池 |
+| `user` | 使用本地账号密码登录；只能执行被系统开关允许的 Claude 上号流程，默认不能查看账号池和权限控制台 |
+
+超级管理员修改角色或停用账号后，服务端会在后续请求重新读取本地账号状态；权限不依赖前端按钮隐藏。管理员不能通过 API 创建另一个管理员，也不能修改系统开关。
+
+本地账号管理入口使用 `POST /api/admin/users`、`PATCH/DELETE /api/admin/users/:id`、`PATCH /api/admin/settings` 和 `GET /api/admin/audit`。账号文件默认写入 `.data/accounts.json`，该目录已加入 `.gitignore`。
+
+## 9. 后续生产化改造边界
 
 ### 9.1 推荐的服务端模块
 
@@ -301,6 +316,7 @@ APP_ENV=development
 APP_URL=http://localhost:3000
 SESSION_SECRET=replace-with-a-random-secret
 ADMIN_ACCESS_KEY=replace-with-a-long-random-admin-key
+LOCAL_ACCOUNT_STORE_PATH=.data/accounts.json
 
 # Sub2API deployment
 SUB2API_BASE_URL=http://localhost:8080
@@ -351,7 +367,7 @@ npm install
 npm run dev
 ```
 
-访问 `http://localhost:3000`，使用 `ADMIN_ACCESS_KEY` 登录，再生成 Claude 授权 URL。Sub2API 必须已经运行，并且该管理员 token 具有账号管理权限。
+访问 `http://localhost:3000`：超级管理员使用 `ADMIN_ACCESS_KEY` 登录；超级管理员创建的管理员和普通用户使用账号密码登录。登录后按照角色进入对应工作台。Sub2API 必须已经运行，并且该管理员 token 具有账号管理权限。
 
 ## 11. 开发步骤
 
@@ -375,8 +391,8 @@ npm run dev
 ### 阶段 2：生产化改造
 
 1. 将流程状态从内存迁移到 PostgreSQL/Redis。
-2. 增加管理员角色、限流、CSRF 防护和多实例锁。
-3. 增加账号状态查询、刷新、撤销和审计日志。
+2. 将本地账号和审计文件迁移到 PostgreSQL/Redis，增加限流、CSRF 防护和多实例锁。
+3. 增加账号状态查询、刷新、撤销和 Sub2API token 轮换。
 4. 增加 request ID、结构化日志和敏感字段脱敏。
 5. 用真实 Sub2API 测试环境完成端到端验收。
 
@@ -396,7 +412,8 @@ npm run dev
 - `sessionKey` 只允许在受控管理员流程中一次性使用；MVP 默认关闭 Cookie 自动授权。
 - 授权码、Sub2API `session_id` 和流程状态需要一次性消费和短时过期。
 - 账号凭据只由 Sub2API 或受控服务端保存，并使用其正式的刷新机制。
-- 所有账号创建、授权、刷新、失败和删除操作写入审计日志。
+- 本地账号密码只保存为不可逆哈希；账号创建、登录、角色变更、开关变更和删除写入审计日志。
+- `.data/` 只用于单机本地 MVP，不能直接作为多实例生产数据库。
 - 生产环境必须使用 HTTPS、密钥管理和数据库备份。
 - 只接入账号所有者明确授权且符合相关服务条款的账号。
 
@@ -405,6 +422,9 @@ npm run dev
 ### 授权与上号
 
 - 管理员可以从本项目发起 Sub2API Claude OAuth 授权。
+- 超级管理员可以创建管理员和普通用户，并修改本地角色与系统开关。
+- 管理员只能创建普通用户，普通用户不能访问账号管理 API。
+- 停用本地账号后，服务端请求会被拒绝，不能只依赖前端隐藏入口。
 - 浏览器完成 Claude 授权后，可以把授权码安全交回服务端。
 - Sub2API 成功兑换 token 并创建 `platform=anthropic`、`type=oauth` 账号。
 - 本项目不向浏览器返回 token 原文。
@@ -419,10 +439,10 @@ npm run dev
 
 ## 14. 当前状态
 
-当前代码已完成第一版 Sub2API Admin API 接入：管理员登录、生成 Claude 授权 URL、提交授权码、服务端兑换并创建 `anthropic/oauth` 账号。
+当前代码已完成第一版 Sub2API Admin API 接入和本地 RBAC：超级管理员引导登录、管理员/普通用户账号登录、角色权限校验、系统开关、审计记录、生成 Claude 授权 URL、提交授权码、服务端兑换并创建 `anthropic/oauth` 账号。
 
 本次 README 修订已经将项目目标改为：
 
 > 通过服务端调用 Sub2API Admin API，完成获得授权的 Claude Code Max 账号接入和状态展示。
 
-下一步应优先完成真实 Sub2API 环境联调和流程持久化，不再增加通用 `userinfo_endpoint` 逻辑。
+下一步应优先完成真实 Sub2API 环境联调、流程持久化和生产级账号存储，不再增加通用 `userinfo_endpoint` 逻辑。

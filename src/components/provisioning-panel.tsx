@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
 
 type ProvisioningPanelProps = {
   adminConfigured: boolean;
   sub2ApiConfigured: boolean;
+  canViewAccountPool: boolean;
 };
 
 type Step = 1 | 2 | 3;
@@ -32,7 +34,8 @@ type AccountSummary = {
 
 const flowStorageKey = "ccmax.active-claude-flow";
 
-export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }: ProvisioningPanelProps) {
+export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, canViewAccountPool }: ProvisioningPanelProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("wizard");
   const [step, setStep] = useState<Step>(1);
   const [flow, setFlow] = useState<ProvisioningFlow | null>(null);
@@ -54,6 +57,12 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
     [accounts],
   );
   const deadCount = accounts.length - aliveCount;
+
+  function redirectToLogin() {
+    sessionStorage.removeItem(flowStorageKey);
+    router.replace("/");
+    router.refresh();
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -99,6 +108,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
         error?: string;
       };
 
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.flowId || !payload.authUrl || !payload.expiresAt) {
         setError(readApiError(response.status, payload.error, "生成授权槽位失败。"));
         return;
@@ -172,6 +182,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
         error?: string;
       };
 
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.account) {
         setError(readApiError(response.status, payload.error, "Claude 账号接入失败。"));
         return;
@@ -201,6 +212,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
         error?: string;
       };
 
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.items) {
         setError(readApiError(response.status, payload.error, "读取已入池账号失败。"));
         return;
@@ -248,16 +260,18 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
         </div>
       ) : null}
 
-      <div className="workspace-nav" role="tablist" aria-label="账号接入视图">
+      <div className={`workspace-nav ${canViewAccountPool ? "" : "is-compact"}`} role="tablist" aria-label="账号接入视图">
         <button className={`workspace-tab ${activeTab === "wizard" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("wizard")}>
           授权向导
         </button>
         <button className={`workspace-tab ${activeTab === "pending" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("pending")}>
           待处理流程 <span className="tab-count">{flow ? 1 : 0}</span>
         </button>
-        <button className={`workspace-tab ${activeTab === "accounts" ? "is-active" : ""}`} type="button" onClick={loadAccounts}>
-          已入池账号
-        </button>
+        {canViewAccountPool ? (
+          <button className={`workspace-tab ${activeTab === "accounts" ? "is-active" : ""}`} type="button" onClick={loadAccounts}>
+            已入池账号
+          </button>
+        ) : null}
       </div>
 
       <div className="summary-strip" aria-label="账号统计">
@@ -266,7 +280,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured }
         <div><span>待授权</span><strong>{flow ? 1 : 0}</strong></div>
       </div>
 
-      {activeTab === "accounts" ? (
+      {activeTab === "accounts" && canViewAccountPool ? (
         <AccountsView accounts={accounts} loading={accountsLoading} onRefresh={loadAccounts} />
       ) : activeTab === "pending" ? (
         <PendingView flow={flow} expired={flowExpired} onContinue={goToSubmitStep} onOpenWizard={resetToStart} />
@@ -580,7 +594,22 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
 
 function readApiError(status: number, error: string | undefined, fallback: string) {
   if (status === 401) return "管理员会话已失效，请重新登录。";
+  if (status === 502 && error === "sub2api_auth_failed") {
+    return "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。";
+  }
+  if (status === 403) {
+    return error === "user_provisioning_disabled"
+      ? "超级管理员已暂停普通用户上号，请联系管理员。"
+      : "当前角色或系统开关不允许执行此操作。";
+  }
   if (status === 410) return "授权槽位已过期，请重新生成。";
+  if (status === 503 && error === "provisioning_disabled") return "超级管理员已暂停 Claude 上号流程。";
   if (status === 503) return "服务尚未配置完成，请检查 .env.local。";
   return error || fallback;
+}
+
+function redirectOnUnauthorized(response: Response, redirectToLogin: () => void) {
+  if (response.status !== 401) return false;
+  redirectToLogin();
+  return true;
 }

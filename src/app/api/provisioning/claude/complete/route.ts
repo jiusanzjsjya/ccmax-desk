@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getAccessContext, provisioningAccess } from "@/lib/access";
 import { env } from "@/lib/env";
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
 import { acquireProvisioningFlow, deleteProvisioningFlow, releaseProvisioningFlow } from "@/lib/provisioning-state";
-import { getCurrentSession } from "@/lib/session";
-import { createClaudeAccount, exchangeClaudeCode, Sub2ApiError } from "@/lib/sub2api";
+import { createClaudeAccount, exchangeClaudeCode, mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +18,15 @@ const completeSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await getCurrentSession();
+  const context = await getAccessContext();
 
-  if (!session) {
+  if (!context) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const access = provisioningAccess(context);
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
   if (!env.isProvisioningConfigured) {
@@ -42,7 +47,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const flow = acquireProvisioningFlow(parsed.data.flowId, session.sessionId);
+  const flow = acquireProvisioningFlow(parsed.data.flowId, context.session.sessionId);
 
   if (!flow) {
     return NextResponse.json({ error: "flow_expired" }, { status: 410 });
@@ -79,10 +84,10 @@ function buildDefaultName(tokenInfo: { email_address?: string; account_uuid?: st
 }
 
 function sub2ErrorResponse(error: unknown, fallback: string) {
-  if (error instanceof Sub2ApiError) {
-    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status && error.status >= 400 && error.status < 500 ? error.status : 502 });
+  const failure = mapSub2ApiError(error, fallback);
+  if (!(error instanceof Sub2ApiError)) {
+    console.error("[provisioning.complete] failed", error instanceof Error ? error.message : error);
   }
 
-  console.error("[provisioning.complete] failed", error instanceof Error ? error.message : error);
-  return NextResponse.json({ error: fallback }, { status: 502 });
+  return NextResponse.json(failure.body, { status: failure.status });
 }

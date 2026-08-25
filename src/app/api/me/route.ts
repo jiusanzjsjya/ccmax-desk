@@ -1,20 +1,26 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentSession } from "@/lib/session";
+import { getAccessContext } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await getCurrentSession();
+  const context = await getAccessContext();
 
-  if (!session) {
+  if (!context) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   return NextResponse.json({
-    user: { role: session.role, sessionId: session.sessionId },
+    user: {
+      id: context.session.userId,
+      username: context.session.username,
+      displayName: context.session.displayName,
+      role: context.role,
+      sessionId: context.session.sessionId,
+    },
     session: {
-      expiresAt: new Date(session.expiresAt * 1000).toISOString(),
+      expiresAt: new Date(context.session.expiresAt * 1000).toISOString(),
     },
   });
 }
