@@ -14,6 +14,35 @@ type ProvisioningFlow = {
 
 const flows = new Map<string, ProvisioningFlow>();
 
+/** Soft cap on concurrent active slots per owner, to bound in-memory state. */
+export const MAX_ACTIVE_FLOWS_PER_OWNER = 20;
+/** Max slots a single batch request may create. */
+export const MAX_BATCH_SLOTS = 5;
+
+export function listOwnerFlows(ownerSessionId: string) {
+  removeExpiredFlows();
+
+  return [...flows.values()]
+    .filter((flow) => flow.ownerSessionId === ownerSessionId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((flow) => ({
+      flowId: flow.flowId,
+      authUrl: flow.authUrl,
+      createdAt: new Date(flow.createdAt).toISOString(),
+      expiresAt: new Date(flow.expiresAt).toISOString(),
+    }));
+}
+
+export function countOwnerFlows(ownerSessionId: string) {
+  removeExpiredFlows();
+
+  let count = 0;
+  for (const flow of flows.values()) {
+    if (flow.ownerSessionId === ownerSessionId) count += 1;
+  }
+  return count;
+}
+
 export function createProvisioningFlow(input: { ownerSessionId: string; sub2SessionId: string; authUrl: string }) {
   removeExpiredFlows();
 

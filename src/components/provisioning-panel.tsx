@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
@@ -13,11 +13,15 @@ type ProvisioningPanelProps = {
 
 type Step = 1 | 2 | 3;
 type Tab = "wizard" | "pending" | "accounts";
+type SlotStatus = "pending" | "submitting" | "done" | "error";
 
-type ProvisioningFlow = {
+type Slot = {
   flowId: string;
   authUrl: string;
   expiresAt: string;
+  code: string;
+  status: SlotStatus;
+  result?: string;
 };
 
 type AccountSummary = {
@@ -30,17 +34,30 @@ type AccountSummary = {
   schedulable: boolean | null;
   errorMessage: string | null;
   createdAt: string | null;
+  displayName?: string | null;
+  subscription?: string | null;
+  deadCause?: string | null;
+  backend?: string;
 };
 
-const flowStorageKey = "ccmax.active-claude-flow";
+type ProxyOption = {
+  id: number | string;
+  name: string | null;
+  protocol: string | null;
+  host: string | null;
+  port: number | null;
+  status: string | null;
+  latencyMs: number | null;
+};
+
+const MAX_BATCH = 5;
 
 export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, canViewAccountPool }: ProvisioningPanelProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("wizard");
   const [step, setStep] = useState<Step>(1);
-  const [flow, setFlow] = useState<ProvisioningFlow | null>(null);
-  const [authCode, setAuthCode] = useState("");
-  const [accountName, setAccountName] = useState("");
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [batchCount, setBatchCount] = useState(1);
   const [notes, setNotes] = useState("");
   const [groupIds, setGroupIds] = useState("");
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
@@ -49,80 +66,154 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   const [loading, setLoading] = useState(false);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [proxies, setProxies] = useState<ProxyOption[]>([]);
+  const [selectedProxyId, setSelectedProxyId] = useState("");
+  const [country, setCountry] = useState("");
+  const [proxyTest, setProxyTest] = useState<{ status: "idle" | "testing" | "ok" | "error"; message: string }>({
+    status: "idle",
+    message: "",
+  });
 
   const configured = adminConfigured && sub2ApiConfigured;
-  const flowExpired = Boolean(flow && new Date(flow.expiresAt).getTime() <= now);
+
+  const activeSlots = useMemo(
+    () => slots.filter((slot) => slot.status !== "done" && !isExpired(slot.expiresAt, now)),
+    [slots, now],
+  );
+  const pendingCount = activeSlots.length;
+
   const aliveCount = useMemo(
-    () => accounts.filter((account) => account.status === "active" && account.schedulable !== false).length,
+    () =>
+      accounts.filter(
+        (account) => account.status === "active" && account.schedulable !== false && !account.deadCause,
+      ).length,
     [accounts],
   );
   const deadCount = accounts.length - aliveCount;
 
-  function redirectToLogin() {
-    sessionStorage.removeItem(flowStorageKey);
+  const redirectToLogin = useCallback(() => {
     router.replace("/");
     router.refresh();
-  }
+  }, [router]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
+  // Restore active slots from the server so a reload keeps pending authorizations.
   useEffect(() => {
-    const restoreTimer = window.setTimeout(() => {
-      const saved = sessionStorage.getItem(flowStorageKey);
-      if (!saved) return;
+    let cancelled = false;
 
+    (async () => {
       try {
-        const parsed = JSON.parse(saved) as ProvisioningFlow;
-        if (parsed.flowId && parsed.authUrl && new Date(parsed.expiresAt).getTime() > Date.now()) {
-          setFlow(parsed);
-          setStep(2);
-        } else {
-          sessionStorage.removeItem(flowStorageKey);
-        }
+        const response = await fetch("/api/provisioning/claude/status", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as {
+          slots?: Array<{ flowId: string; authUrl: string; expiresAt: string }>;
+        };
+        if (cancelled || !payload.slots?.length) return;
+
+        setSlots(payload.slots.map((slot) => ({ ...slot, code: "", status: "pending" as const })));
+        setStep(2);
       } catch {
-        sessionStorage.removeItem(flowStorageKey);
+        // Ignore restore failures; the operator can generate new slots.
       }
+    })();
 
-    }, 0);
-
-    return () => window.clearTimeout(restoreTimer);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function startAuthorization() {
-    setActiveTab("wizard");
-    setStep(1);
-    setError("");
-    setMessage("");
-    setAuthCode("");
-    setLoading(true);
+  // Load Sub2API proxies for the selector (admin only; 403 for plain users just hides it).
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/provisioning/proxies", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as { items?: ProxyOption[] };
+        if (!cancelled && payload.items?.length) setProxies(payload.items);
+      } catch {
+        // Proxy selection is optional; ignore failures.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function updateSlot(flowId: string, patch: Partial<Slot>) {
+    setSlots((current) => current.map((slot) => (slot.flowId === flowId ? { ...slot, ...patch } : slot)));
+  }
+
+  async function testSelectedProxy() {
+    if (!selectedProxyId) return;
+    setProxyTest({ status: "testing", message: "检测中..." });
 
     try {
-      const response = await fetch("/api/provisioning/claude/start", { method: "POST" });
+      const response = await fetch(`/api/provisioning/proxies/${selectedProxyId}/test`, { method: "POST" });
       const payload = (await response.json().catch(() => ({}))) as {
-        flowId?: string;
-        authUrl?: string;
-        expiresAt?: string;
+        success?: boolean;
+        message?: string;
+        latencyMs?: number | null;
+        exitIp?: string | null;
         error?: string;
       };
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
-      if (!response.ok || !payload.flowId || !payload.authUrl || !payload.expiresAt) {
+      if (!response.ok) {
+        setProxyTest({ status: "error", message: readApiError(response.status, payload.error, "代理检测失败。") });
+        return;
+      }
+
+      const parts = [payload.message || (payload.success ? "可用" : "不可用")];
+      if (payload.latencyMs != null) parts.push(`${payload.latencyMs}ms`);
+      if (payload.exitIp) parts.push(`出口 ${payload.exitIp}`);
+      setProxyTest({ status: payload.success ? "ok" : "error", message: parts.join(" · ") });
+    } catch {
+      setProxyTest({ status: "error", message: "无法连接代理检测服务。" });
+    }
+  }
+
+  async function generateSlots() {
+    setActiveTab("wizard");
+    setError("");
+    setMessage("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/provisioning/claude/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: batchCount,
+          ...(selectedProxyId ? { proxyId: Number(selectedProxyId) } : {}),
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        slots?: Array<{ flowId: string; authUrl: string; expiresAt: string }>;
+        partial?: boolean;
+        error?: string;
+      };
+
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
+      if (!response.ok || !payload.slots?.length) {
         setError(readApiError(response.status, payload.error, "生成授权槽位失败。"));
         return;
       }
 
-      const nextFlow = {
-        flowId: payload.flowId,
-        authUrl: payload.authUrl,
-        expiresAt: payload.expiresAt,
-      };
-      setFlow(nextFlow);
-      sessionStorage.setItem(flowStorageKey, JSON.stringify(nextFlow));
+      const fresh: Slot[] = payload.slots.map((slot) => ({ ...slot, code: "", status: "pending" }));
+      setSlots((current) => [...current, ...fresh]);
       setStep(2);
-      setMessage("授权槽位已创建。请在新标签页完成 Claude 官方登录，再回到这里提交回执。");
+      setMessage(
+        payload.partial
+          ? `已生成 ${fresh.length} 个槽位（部分请求失败）。请逐个完成官方登录后提交回执。`
+          : `已生成 ${fresh.length} 个授权槽位。请在新标签完成官方登录，再回到这里逐个提交回执。`,
+      );
     } catch {
       setError("无法连接 Sub2API 接入服务。");
     } finally {
@@ -131,72 +222,65 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   }
 
   function goToSubmitStep() {
-    if (!flow) {
-      setError("当前没有待处理的授权槽位，请先生成槽位。");
+    if (pendingCount === 0) {
+      setError("当前没有待处理槽位，请先生成槽位。");
       setActiveTab("wizard");
       setStep(1);
       return;
     }
-
     setActiveTab("wizard");
     setStep(3);
     setError("");
     setMessage("");
   }
 
-  async function completeAuthorization() {
-    setError("");
-    setMessage("");
+  async function submitSlot(slot: Slot) {
+    const normalizedCode = normalizeClaudeAuthCode(slot.code);
 
-    const normalizedCode = normalizeClaudeAuthCode(authCode);
-    if (!flow || flowExpired) {
-      setError("授权槽位已过期，请回到第一步重新生成。");
+    if (isExpired(slot.expiresAt, Date.now())) {
+      updateSlot(slot.flowId, { status: "error", result: "槽位已过期，请重新生成。" });
       return;
     }
     if (!isValidClaudeAuthCode(normalizedCode)) {
-      setError("回执格式不正确，请粘贴完整的 code#state 或 Claude 回调 URL。");
+      updateSlot(slot.flowId, { status: "error", result: "回执格式不正确，请粘贴完整的 code#state 或回调 URL。" });
       return;
     }
 
-    setAuthCode(normalizedCode);
-    setLoading(true);
+    updateSlot(slot.flowId, { status: "submitting", code: normalizedCode, result: undefined });
 
     try {
       const parsedGroupIds = groupIds
         .split(",")
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0);
+
       const response = await fetch("/api/provisioning/claude/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          flowId: flow.flowId,
+          flowId: slot.flowId,
           code: normalizedCode,
-          name: accountName.trim() || undefined,
           notes: notes.trim() || undefined,
+          country: country.trim() || undefined,
           groupIds: parsedGroupIds,
         }),
       });
-      const payload = (await response.json().catch(() => ({}))) as {
-        account?: AccountSummary;
-        error?: string;
-      };
+      const payload = (await response.json().catch(() => ({}))) as { account?: AccountSummary; error?: string };
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.account) {
-        setError(readApiError(response.status, payload.error, "Claude 账号接入失败。"));
+        updateSlot(slot.flowId, {
+          status: "error",
+          result: readApiError(response.status, payload.error, "Claude 账号接入失败。"),
+        });
         return;
       }
 
-      setFlow(null);
-      sessionStorage.removeItem(flowStorageKey);
-      setStep(3);
-      setMessage("授权成功，账号已写入 Sub2API 账号池。浏览器没有接收 token 原文。");
+      const label = payload.account.email || payload.account.name || "账号已入池";
+      updateSlot(slot.flowId, { status: "done", result: `已入池：${label}` });
       setAccounts((current) => [payload.account as AccountSummary, ...current]);
     } catch {
-      setError("无法连接 Sub2API 接入服务。");
-    } finally {
-      setLoading(false);
+      updateSlot(slot.flowId, { status: "error", result: "无法连接 Sub2API 接入服务。" });
     }
   }
 
@@ -207,10 +291,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
     try {
       const response = await fetch("/api/provisioning/claude/accounts", { cache: "no-store" });
-      const payload = (await response.json().catch(() => ({}))) as {
-        items?: AccountSummary[];
-        error?: string;
-      };
+      const payload = (await response.json().catch(() => ({}))) as { items?: AccountSummary[]; error?: string };
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.items) {
@@ -227,28 +308,9 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     }
   }
 
-  async function copyAuthUrl() {
-    if (!flow?.authUrl) return;
-
-    try {
-      await navigator.clipboard.writeText(flow.authUrl);
-      setMessage("授权链接已复制。");
-    } catch {
-      setError("复制失败，请直接点击链接打开授权页面。");
-    }
-  }
-
-  function resetToStart() {
-    setActiveTab("wizard");
-    setStep(1);
-    setFlow(null);
-    setAuthCode("");
-    setAccountName("");
-    setNotes("");
-    setGroupIds("");
-    setMessage("");
-    setError("");
-    sessionStorage.removeItem(flowStorageKey);
+  function clearFinished() {
+    setSlots((current) => current.filter((slot) => slot.status !== "done" && !isExpired(slot.expiresAt, Date.now())));
+    setMessage("已清理完成和过期的槽位。");
   }
 
   return (
@@ -265,7 +327,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           授权向导
         </button>
         <button className={`workspace-tab ${activeTab === "pending" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("pending")}>
-          待处理流程 <span className="tab-count">{flow ? 1 : 0}</span>
+          待处理槽位 <span className="tab-count">{pendingCount}</span>
         </button>
         {canViewAccountPool ? (
           <button className={`workspace-tab ${activeTab === "accounts" ? "is-active" : ""}`} type="button" onClick={loadAccounts}>
@@ -277,20 +339,19 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       <div className="summary-strip" aria-label="账号统计">
         <div><span>存活</span><strong>{aliveCount}</strong></div>
         <div><span>失效</span><strong>{deadCount}</strong></div>
-        <div><span>待授权</span><strong>{flow ? 1 : 0}</strong></div>
+        <div><span>待授权</span><strong>{pendingCount}</strong></div>
       </div>
 
       {activeTab === "accounts" && canViewAccountPool ? (
         <AccountsView accounts={accounts} loading={accountsLoading} onRefresh={loadAccounts} />
       ) : activeTab === "pending" ? (
-        <PendingView flow={flow} expired={flowExpired} onContinue={goToSubmitStep} onOpenWizard={resetToStart} />
+        <PendingView slots={activeSlots} now={now} onContinue={goToSubmitStep} onNew={() => { setActiveTab("wizard"); setStep(1); }} onCopy={copyToClipboard} />
       ) : (
         <WizardView
           step={step}
-          flow={flow}
-          expired={flowExpired}
-          authCode={authCode}
-          accountName={accountName}
+          slots={slots}
+          activeSlots={activeSlots}
+          batchCount={batchCount}
           notes={notes}
           groupIds={groupIds}
           loading={loading}
@@ -298,19 +359,27 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           message={message}
           error={error}
           now={now}
-          onStart={startAuthorization}
+          onGenerate={generateSlots}
           onContinue={goToSubmitStep}
-          onComplete={completeAuthorization}
-          onReset={resetToStart}
-          onCopyUrl={copyAuthUrl}
-          setAuthCode={setAuthCode}
-          setAccountName={setAccountName}
+          onSubmitSlot={submitSlot}
+          onBackToStart={() => setStep(1)}
+          onClearFinished={clearFinished}
+          onCopy={copyToClipboard}
+          setBatchCount={setBatchCount}
           setNotes={setNotes}
           setGroupIds={setGroupIds}
+          setSlotCode={(flowId, code) => updateSlot(flowId, { code, status: "pending", result: undefined })}
+          proxies={proxies}
+          selectedProxyId={selectedProxyId}
+          setSelectedProxyId={(value) => { setSelectedProxyId(value); setProxyTest({ status: "idle", message: "" }); }}
+          onTestProxy={testSelectedProxy}
+          proxyTest={proxyTest}
+          country={country}
+          setCountry={setCountry}
         />
       )}
 
-      {activeTab === "accounts" && (message || error) ? (
+      {activeTab !== "wizard" && (message || error) ? (
         <div className={error ? "error-box" : "status-box"} role={error ? "alert" : "status"}>
           {error || message}
         </div>
@@ -319,12 +388,19 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   );
 }
 
+async function copyToClipboard(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    // Clipboard may be blocked; the operator can still select the field manually.
+  }
+}
+
 function WizardView({
   step,
-  flow,
-  expired,
-  authCode,
-  accountName,
+  slots,
+  activeSlots,
+  batchCount,
   notes,
   groupIds,
   loading,
@@ -332,21 +408,28 @@ function WizardView({
   message,
   error,
   now,
-  onStart,
+  onGenerate,
   onContinue,
-  onComplete,
-  onReset,
-  onCopyUrl,
-  setAuthCode,
-  setAccountName,
+  onSubmitSlot,
+  onBackToStart,
+  onClearFinished,
+  onCopy,
+  setBatchCount,
   setNotes,
   setGroupIds,
+  setSlotCode,
+  proxies,
+  selectedProxyId,
+  setSelectedProxyId,
+  onTestProxy,
+  proxyTest,
+  country,
+  setCountry,
 }: {
   step: Step;
-  flow: ProvisioningFlow | null;
-  expired: boolean;
-  authCode: string;
-  accountName: string;
+  slots: Slot[];
+  activeSlots: Slot[];
+  batchCount: number;
   notes: string;
   groupIds: string;
   loading: boolean;
@@ -354,16 +437,26 @@ function WizardView({
   message: string;
   error: string;
   now: number;
-  onStart: () => void;
+  onGenerate: () => void;
   onContinue: () => void;
-  onComplete: () => void;
-  onReset: () => void;
-  onCopyUrl: () => void;
-  setAuthCode: (value: string) => void;
-  setAccountName: (value: string) => void;
+  onSubmitSlot: (slot: Slot) => void;
+  onBackToStart: () => void;
+  onClearFinished: () => void;
+  onCopy: (value: string) => void;
+  setBatchCount: (value: number) => void;
   setNotes: (value: string) => void;
   setGroupIds: (value: string) => void;
+  setSlotCode: (flowId: string, code: string) => void;
+  proxies: ProxyOption[];
+  selectedProxyId: string;
+  setSelectedProxyId: (value: string) => void;
+  onTestProxy: () => void;
+  proxyTest: { status: "idle" | "testing" | "ok" | "error"; message: string };
+  country: string;
+  setCountry: (value: string) => void;
 }) {
+  const doneCount = slots.filter((slot) => slot.status === "done").length;
+
   return (
     <section className="wizard-panel" aria-labelledby="wizard-title">
       <div className="wizard-steps" aria-label="授权步骤">
@@ -375,17 +468,98 @@ function WizardView({
       {step === 1 ? (
         <div className="step-body">
           <p className="label">步骤一 / 生成授权槽位</p>
-          <h3 id="wizard-title">准备一个 Claude Max 账号</h3>
+          <h3 id="wizard-title">准备 Claude Max 账号</h3>
           <p className="step-lead">
-            当前适配 Sub2API 的 Claude OAuth 管理接口。这里不再重复填写渠道、国家或子渠道信息，账号名称和备注可在最后一步补充。
+            一次可生成 1–5 个授权槽位，每个槽位对应一个独立的 Claude 官方授权链接。备注与分组会应用到这一批账号。
           </p>
-          <div className="status-box compact-status">
-            <strong>流程只有三步</strong>
-            <span>生成授权链接 → 完成官方登录 → 粘贴 code#state。</span>
+          <div className="advanced-fields">
+            <label className="field-label" htmlFor="batch-count">生成槽位数（1–{MAX_BATCH}）</label>
+            <input
+              id="batch-count"
+              className="text-input"
+              type="number"
+              min={1}
+              max={MAX_BATCH}
+              value={batchCount}
+              onChange={(event) => setBatchCount(clampBatch(event.target.value))}
+              disabled={loading}
+            />
+            <label className="field-label" htmlFor="batch-notes">批次备注（可选）</label>
+            <input
+              id="batch-notes"
+              className="text-input"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="例如 Allen-0826，不要填写 token"
+              maxLength={500}
+              disabled={loading}
+            />
+            <label className="field-label" htmlFor="batch-groups">分组 ID（可选）</label>
+            <input
+              id="batch-groups"
+              className="text-input"
+              value={groupIds}
+              onChange={(event) => setGroupIds(event.target.value)}
+              placeholder="例如：1,2"
+              disabled={loading}
+            />
+            <label className="field-label" htmlFor="batch-country">注册国家（本地标签，可选）</label>
+            <input
+              id="batch-country"
+              className="text-input"
+              list="country-options"
+              value={country}
+              onChange={(event) => setCountry(event.target.value)}
+              placeholder="例如 US / JP / SG，仅作账号备注标签"
+              maxLength={60}
+              disabled={loading}
+            />
+            <datalist id="country-options">
+              {["US", "JP", "SG", "HK", "GB", "DE", "FR", "CA", "AU", "KR", "TW"].map((code) => (
+                <option key={code} value={code} />
+              ))}
+            </datalist>
+            {proxies.length ? (
+              <>
+                <label className="field-label" htmlFor="batch-proxy">出口代理（Sub2API 代理，可选）</label>
+                <div className="flow-actions">
+                  <select
+                    id="batch-proxy"
+                    className="text-input"
+                    value={selectedProxyId}
+                    onChange={(event) => setSelectedProxyId(event.target.value)}
+                    disabled={loading}
+                  >
+                    <option value="">默认（由 Sub2API 分配）</option>
+                    {proxies.map((proxy) => (
+                      <option key={proxy.id} value={String(proxy.id)}>
+                        {proxyLabel(proxy)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={onTestProxy}
+                    disabled={!selectedProxyId || proxyTest.status === "testing"}
+                  >
+                    {proxyTest.status === "testing" ? "检测中..." : "检测代理"}
+                  </button>
+                </div>
+                {proxyTest.message ? (
+                  <p className={proxyTest.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>
+                    {proxyTest.message}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
           </div>
-          <button className="oauth-button" type="button" onClick={onStart} disabled={!configured || loading}>
-            {loading ? "正在生成..." : "生成授权槽位"}
+          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading}>
+            {loading ? "正在生成..." : `生成 ${batchCount} 个授权槽位`}
           </button>
+          {activeSlots.length ? (
+            <p className="step-lead">已有 {activeSlots.length} 个待处理槽位，可继续到第二步或追加生成。</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -393,89 +567,62 @@ function WizardView({
         <div className="step-body">
           <p className="label">步骤二 / 官方授权</p>
           <h3 id="wizard-title">在 Claude 完成官方授权</h3>
-          <p className="step-lead">打开授权页登录并同意授权。成功页会显示完整的 code#state，请复制后回到本页面。</p>
-          {flow ? <FlowCard flow={flow} expired={expired} now={now} onCopy={onCopyUrl} /> : null}
+          <p className="step-lead">逐个打开授权链接登录并同意授权。成功页会显示完整的 code#state，复制后回到第三步提交。</p>
+          {activeSlots.length ? (
+            <div className="slot-cards">
+              {activeSlots.map((slot, index) => (
+                <SlotAuthCard key={slot.flowId} slot={slot} index={index} now={now} onCopy={onCopy} />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">没有待授权的槽位，请回到第一步生成。</p>
+          )}
           <div className="wizard-actions">
-            <button className="oauth-button" type="button" onClick={onContinue} disabled={!flow || expired}>
-              我已完成授权，去粘贴回执
+            <button className="oauth-button" type="button" onClick={onContinue} disabled={activeSlots.length === 0}>
+              我已完成授权，去提交回执
             </button>
-            <button className="secondary-button" type="button" onClick={onReset} disabled={loading}>
-              重新生成槽位
+            <button className="secondary-button" type="button" onClick={onBackToStart} disabled={loading}>
+              追加生成槽位
             </button>
           </div>
         </div>
       ) : null}
 
-      {step === 3 && flow ? (
+      {step === 3 ? (
         <div className="step-body">
           <p className="label">步骤三 / 提交回执</p>
-          <h3 id="wizard-title">粘贴完整授权回执</h3>
-          <p className="step-lead">支持直接粘贴 code#state、Claude 回调 URL，或分两行粘贴 code 和 state。</p>
-          <label className="field-label" htmlFor="claude-auth-code">Authorization Code</label>
-          <textarea
-            id="claude-auth-code"
-            className="text-input textarea-input"
-            value={authCode}
-            onChange={(event) => setAuthCode(event.target.value)}
-            placeholder="粘贴完整的 code#state 或回调 URL"
-            rows={4}
-            disabled={loading}
-          />
-          <details className="advanced-panel">
-            <summary>账号池信息（可选）</summary>
-            <div className="advanced-fields">
-              <label className="field-label" htmlFor="claude-account-name">账号名称</label>
-              <input
-                id="claude-account-name"
-                className="text-input"
-                value={accountName}
-                onChange={(event) => setAccountName(event.target.value)}
-                placeholder="留空则使用邮箱或账号 UUID"
-                maxLength={100}
-                disabled={loading}
-              />
-              <label className="field-label" htmlFor="claude-account-notes">备注</label>
-              <input
-                id="claude-account-notes"
-                className="text-input"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="不要填写 token"
-                maxLength={500}
-                disabled={loading}
-              />
-              <label className="field-label" htmlFor="claude-group-ids">分组 ID</label>
-              <input
-                id="claude-group-ids"
-                className="text-input"
-                value={groupIds}
-                onChange={(event) => setGroupIds(event.target.value)}
-                placeholder="例如：1,2"
-                disabled={loading}
-              />
+          <h3 id="wizard-title">逐槽粘贴授权回执</h3>
+          <p className="step-lead">支持 code#state、Claude 回调 URL，或分两行粘贴 code 和 state。每个槽位独立提交。</p>
+          {activeSlots.length ? (
+            <div className="slot-cards">
+              {activeSlots.map((slot, index) => (
+                <SlotSubmitCard
+                  key={slot.flowId}
+                  slot={slot}
+                  index={index}
+                  now={now}
+                  onChange={(code) => setSlotCode(slot.flowId, code)}
+                  onSubmit={() => onSubmitSlot(slot)}
+                />
+              ))}
             </div>
-          </details>
+          ) : (
+            <p className="empty-state">没有待提交的槽位。</p>
+          )}
           <div className="wizard-actions">
-            <button className="oauth-button" type="button" onClick={onComplete} disabled={loading || !authCode.trim()}>
-              {loading ? "正在兑换并入池..." : "提交回执并创建账号"}
+            <button className="secondary-button" type="button" onClick={onBackToStart}>
+              生成更多槽位
             </button>
-            <button className="secondary-button" type="button" onClick={onReset} disabled={loading}>
-              重新开始
-            </button>
+            {doneCount ? (
+              <button className="secondary-button" type="button" onClick={onClearFinished}>
+                清理已完成（{doneCount}）
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
 
-      {step === 3 && !flow && message ? (
-        <div className="success-box">
-          <p className="field-label">接入结果</p>
-          <p className="success-copy">{message}</p>
-          <button className="secondary-button" type="button" onClick={onReset}>
-            再授权一个账号
-          </button>
-        </div>
-      ) : null}
-
+      {message && !error ? <div className="status-box" role="status">{message}</div> : null}
       {error ? <div className="error-box" role="alert">{error}</div> : null}
     </section>
   );
@@ -490,26 +637,33 @@ function StepItem({ number, label, current, done }: { number: number; label: str
   );
 }
 
-function FlowCard({ flow, expired, now, onCopy }: { flow: ProvisioningFlow; expired: boolean; now: number; onCopy: () => void }) {
-  const remainingSeconds = Math.max(0, Math.floor((new Date(flow.expiresAt).getTime() - now) / 1000));
-  const minutes = String(Math.floor(remainingSeconds / 60)).padStart(2, "0");
-  const seconds = String(remainingSeconds % 60).padStart(2, "0");
+function SlotBadge({ slot, now }: { slot: Slot; now: number }) {
+  if (slot.status === "done") return <span className="flow-badge">已完成</span>;
+  const expired = isExpired(slot.expiresAt, now);
+  return <span className={`flow-badge ${expired ? "is-expired" : ""}`}>{expired ? "已过期" : `剩余 ${formatRemaining(slot.expiresAt, now)}`}</span>;
+}
 
+function SlotAuthCard({ slot, index, now, onCopy }: { slot: Slot; index: number; now: number; onCopy: (value: string) => void }) {
+  const expired = isExpired(slot.expiresAt, now);
   return (
     <div className="flow-card">
       <div className="flow-card-head">
-        <span className={`flow-badge ${expired ? "is-expired" : ""}`}>
-          {expired ? "已过期" : `剩余 ${minutes}:${seconds}`}
-        </span>
-        <span className="flow-id">槽位 {flow.flowId.slice(0, 8)}</span>
+        <SlotBadge slot={slot} now={now} />
+        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
       </div>
-      <label className="field-label" htmlFor="claude-auth-url">官方授权链接</label>
-      <input id="claude-auth-url" className="text-input auth-url-input" value={flow.authUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>官方授权链接</label>
+      <input
+        id={`auth-url-${slot.flowId}`}
+        className="text-input auth-url-input"
+        value={slot.authUrl}
+        readOnly
+        onFocus={(event) => event.currentTarget.select()}
+      />
       <div className="flow-actions">
-        <a className="oauth-button" href={flow.authUrl} target="_blank" rel="noreferrer">
+        <a className="oauth-button" href={slot.authUrl} target="_blank" rel="noreferrer" aria-disabled={expired}>
           打开官方授权页 ↗
         </a>
-        <button className="secondary-button" type="button" onClick={onCopy}>
+        <button className="secondary-button" type="button" onClick={() => onCopy(slot.authUrl)}>
           复制链接
         </button>
       </div>
@@ -517,38 +671,85 @@ function FlowCard({ flow, expired, now, onCopy }: { flow: ProvisioningFlow; expi
   );
 }
 
-function PendingView({
-  flow,
-  expired,
-  onContinue,
-  onOpenWizard,
+function SlotSubmitCard({
+  slot,
+  index,
+  now,
+  onChange,
+  onSubmit,
 }: {
-  flow: ProvisioningFlow | null;
-  expired: boolean;
+  slot: Slot;
+  index: number;
+  now: number;
+  onChange: (code: string) => void;
+  onSubmit: () => void;
+}) {
+  const submitting = slot.status === "submitting";
+  return (
+    <div className="flow-card">
+      <div className="flow-card-head">
+        <SlotBadge slot={slot} now={now} />
+        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
+      </div>
+      <label className="field-label" htmlFor={`code-${slot.flowId}`}>Authorization Code</label>
+      <textarea
+        id={`code-${slot.flowId}`}
+        className="text-input textarea-input"
+        value={slot.code}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="粘贴完整的 code#state 或回调 URL"
+        rows={3}
+        disabled={submitting}
+      />
+      <div className="flow-actions">
+        <button className="oauth-button" type="button" onClick={onSubmit} disabled={submitting || !slot.code.trim()}>
+          {submitting ? "正在兑换并入池..." : "提交回执并创建账号"}
+        </button>
+      </div>
+      {slot.result ? (
+        <p className={slot.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>{slot.result}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function PendingView({
+  slots,
+  now,
+  onContinue,
+  onNew,
+  onCopy,
+}: {
+  slots: Slot[];
+  now: number;
   onContinue: () => void;
-  onOpenWizard: () => void;
+  onNew: () => void;
+  onCopy: (value: string) => void;
 }) {
   return (
     <section className="list-panel">
       <div className="panel-heading-row">
         <div>
-          <p className="label">待处理流程</p>
+          <p className="label">待处理槽位</p>
           <h3>授权槽位</h3>
         </div>
-        <button className="secondary-button" type="button" onClick={onOpenWizard}>
+        <button className="secondary-button" type="button" onClick={onNew}>
           新建槽位
         </button>
       </div>
-      {flow ? (
-        <div className="pending-row">
-          <div>
-            <strong>{expired ? "槽位已过期" : "等待提交授权回执"}</strong>
-            <span>{expired ? "请回到授权向导重新生成。" : "完成官方授权后，继续提交 code#state。"}</span>
+      {slots.length ? (
+        <>
+          <div className="slot-cards">
+            {slots.map((slot, index) => (
+              <SlotAuthCard key={slot.flowId} slot={slot} index={index} now={now} onCopy={onCopy} />
+            ))}
           </div>
-          <button className="oauth-button compact-button" type="button" onClick={onContinue} disabled={expired}>
-            去提交回执
-          </button>
-        </div>
+          <div className="wizard-actions">
+            <button className="oauth-button" type="button" onClick={onContinue}>
+              去提交回执
+            </button>
+          </div>
+        </>
       ) : (
         <p className="empty-state">当前没有待处理槽位。</p>
       )}
@@ -570,20 +771,29 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
       </div>
       {accounts.length ? (
         <div className="account-list">
-          {accounts.map((account) => (
-            <article className="account-row" key={`${account.id}-${account.createdAt || account.name}`}>
-              <div className="account-main">
-                <strong>{account.email || account.name || "未命名账号"}</strong>
-                <span>{account.name || "Claude Code Max"}</span>
-              </div>
-              <div className="account-meta">
-                <span className={`account-status ${account.status === "active" ? "is-alive" : "is-dead"}`}>
-                  {account.status === "active" ? "存活" : account.status || "未知"}
-                </span>
-                <span>{account.platform} / {account.type}</span>
-              </div>
-            </article>
-          ))}
+          {accounts.map((account) => {
+            const alive = account.status === "active" && account.schedulable !== false && !account.deadCause;
+            return (
+              <article className="account-row" key={`${account.id}-${account.createdAt || account.name}`}>
+                <div className="account-main">
+                  <strong>{account.email || account.displayName || account.name || "未命名账号"}</strong>
+                  <span>
+                    {account.displayName || account.name || "Claude Code Max"}
+                    {account.subscription ? ` · ${account.subscription}` : ""}
+                  </span>
+                </div>
+                <div className="account-meta">
+                  <span className={`account-status ${alive ? "is-alive" : "is-dead"}`}>
+                    {alive ? "存活" : account.deadCause || account.status || "失效"}
+                  </span>
+                  <span>
+                    {account.platform} / {account.type}
+                    {account.backend ? ` · ${account.backend}` : ""}
+                  </span>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <p className="empty-state">暂无已入池账号。完成一次授权后，账号会显示在这里。</p>
@@ -592,8 +802,35 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
   );
 }
 
+function proxyLabel(proxy: ProxyOption) {
+  const host = [proxy.host, proxy.port].filter(Boolean).join(":");
+  const parts = [proxy.name || host || `#${proxy.id}`];
+  if (proxy.protocol) parts.push(proxy.protocol);
+  if (proxy.latencyMs != null) parts.push(`${proxy.latencyMs}ms`);
+  if (proxy.status && proxy.status !== "active") parts.push(proxy.status);
+  return parts.join(" · ");
+}
+
+function clampBatch(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(MAX_BATCH, Math.max(1, Math.floor(parsed)));
+}
+
+function isExpired(expiresAt: string, now: number) {
+  return new Date(expiresAt).getTime() <= now;
+}
+
+function formatRemaining(expiresAt: string, now: number) {
+  const remaining = Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
+  const minutes = String(Math.floor(remaining / 60)).padStart(2, "0");
+  const seconds = String(remaining % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 function readApiError(status: number, error: string | undefined, fallback: string) {
   if (status === 401) return "管理员会话已失效，请重新登录。";
+  if (status === 429) return "待处理槽位过多，请先完成或清理已有槽位。";
   if (status === 502 && error === "sub2api_auth_failed") {
     return "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。";
   }
@@ -604,6 +841,7 @@ function readApiError(status: number, error: string | undefined, fallback: strin
   }
   if (status === 410) return "授权槽位已过期，请重新生成。";
   if (status === 503 && error === "provisioning_disabled") return "超级管理员已暂停 Claude 上号流程。";
+  if (status === 503 && error === "backend_not_configured") return "目标后端尚未配置，请检查对应环境变量。";
   if (status === 503) return "服务尚未配置完成，请检查 .env.local。";
   return error || fallback;
 }

@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { resolveOAuthBroker } from "@/lib/backends/registry";
 import { env } from "@/lib/env";
-import { createProvisioningFlow } from "@/lib/provisioning-state";
-import { generateClaudeAuthUrl, mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
+import {
+  countOwnerFlows,
+  createProvisioningFlow,
+  MAX_ACTIVE_FLOWS_PER_OWNER,
+  MAX_BATCH_SLOTS,
+} from "@/lib/provisioning-state";
+import { mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+const startSchema = z.object({
+  count: z.coerce.number().int().min(1).max(MAX_BATCH_SLOTS).default(1),
+  proxyId: z.coerce.number().int().positive().optional(),
+});
+
+export async function POST(request: Request) {
   const context = await getAccessContext();
 
   if (!context) {
@@ -23,22 +35,46 @@ export async function POST() {
     return NextResponse.json({ error: "provisioning_not_configured" }, { status: 503 });
   }
 
-  try {
-    const authorization = await generateClaudeAuthUrl();
-    const flow = createProvisioningFlow({
-      ownerSessionId: context.session.sessionId,
-      sub2SessionId: authorization.session_id,
-      authUrl: authorization.auth_url,
-    });
-
-    return NextResponse.json({
-      flowId: flow.flowId,
-      authUrl: flow.authUrl,
-      expiresAt: new Date(flow.expiresAt).toISOString(),
-    });
-  } catch (error) {
-    return sub2ErrorResponse(error, "生成 Claude 授权地址失败");
+  const parsed = startSchema.safeParse((await request.json().catch(() => null)) ?? {});
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
   }
+
+  const owned = countOwnerFlows(context.session.sessionId);
+  const room = Math.max(0, MAX_ACTIVE_FLOWS_PER_OWNER - owned);
+  const count = Math.min(parsed.data.count, room);
+
+  if (count <= 0) {
+    return NextResponse.json({ error: "too_many_active_slots" }, { status: 429 });
+  }
+
+  const broker = resolveOAuthBroker();
+  const slots: Array<{ flowId: string; authUrl: string; expiresAt: string }> = [];
+
+  try {
+    // Each slot is an independent OAuth handshake, so generate them sequentially.
+    for (let index = 0; index < count; index += 1) {
+      const authorization = await broker.generateClaudeAuthUrl({ proxyId: parsed.data.proxyId });
+      const flow = createProvisioningFlow({
+        ownerSessionId: context.session.sessionId,
+        sub2SessionId: authorization.session_id,
+        authUrl: authorization.auth_url,
+      });
+      slots.push({
+        flowId: flow.flowId,
+        authUrl: flow.authUrl,
+        expiresAt: new Date(flow.expiresAt).toISOString(),
+      });
+    }
+  } catch (error) {
+    // Return any slots already created so the operator can still use them.
+    if (slots.length === 0) {
+      return sub2ErrorResponse(error, "生成 Claude 授权地址失败");
+    }
+    return NextResponse.json({ slots, partial: true });
+  }
+
+  return NextResponse.json({ slots });
 }
 
 function sub2ErrorResponse(error: unknown, fallback: string) {

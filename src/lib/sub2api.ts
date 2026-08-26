@@ -23,6 +23,10 @@ export type Sub2ApiAccountSummary = {
   schedulable: boolean | null;
   errorMessage: string | null;
   createdAt: string | null;
+  // Optional richer fields; null when the backend does not report them.
+  displayName?: string | null;
+  subscription?: string | null;
+  deadCause?: string | null;
 };
 
 type RawSub2ApiAccount = {
@@ -36,6 +40,12 @@ type RawSub2ApiAccount = {
   schedulable?: boolean;
   error_message?: string | null;
   created_at?: string;
+  account_display_name?: string;
+  display_name?: string;
+  subscription_type?: string;
+  subscription_tier?: string;
+  lifecycle_dead_cause?: string | null;
+  lifecycle_status?: string;
 };
 
 type RawSub2ApiAccountList = {
@@ -75,11 +85,13 @@ export function mapSub2ApiError(error: unknown, fallback: string) {
   };
 }
 
-export async function generateClaudeAuthUrl() {
+export async function generateClaudeAuthUrl(opts?: { proxyId?: number }) {
   const config = getSub2ApiConfig();
+  // Per-request proxy_id (an existing Sub2API proxy) overrides the env default.
+  const proxyId = opts?.proxyId ?? config.proxyId;
   const result = await request<GenerateAuthUrlResponse>(config, "/api/v1/admin/accounts/generate-auth-url", {
     method: "POST",
-    body: JSON.stringify(config.proxyId ? { proxy_id: config.proxyId } : {}),
+    body: JSON.stringify(proxyId ? { proxy_id: proxyId } : {}),
   });
 
   if (!result.auth_url || !result.session_id) {
@@ -87,6 +99,77 @@ export async function generateClaudeAuthUrl() {
   }
 
   return result;
+}
+
+export type ProxySummary = {
+  id: number | string;
+  name: string | null;
+  protocol: string | null;
+  host: string | null;
+  port: number | null;
+  status: string | null;
+  latencyMs: number | null;
+};
+
+export type ProxyTestResult = {
+  success: boolean;
+  message: string | null;
+  latencyMs: number | null;
+  exitIp: string | null;
+};
+
+/** List Sub2API's managed proxies (never returns credentials). */
+export async function listProxies(): Promise<ProxySummary[]> {
+  const config = getSub2ApiConfig();
+  const result = await request<unknown>(config, "/api/v1/admin/proxies", { method: "GET" });
+  const rows = Array.isArray(result)
+    ? result
+    : ((result as { items?: unknown[]; proxies?: unknown[] })?.items ??
+      (result as { proxies?: unknown[] })?.proxies ??
+      []);
+  return (rows as Array<Record<string, unknown>>).map(summarizeProxy);
+}
+
+/** Test an existing Sub2API proxy by id (POST /admin/proxies/:id/test). */
+export async function testProxy(id: number): Promise<ProxyTestResult> {
+  const config = getSub2ApiConfig();
+  const result = await request<Record<string, unknown>>(config, `/api/v1/admin/proxies/${id}/test`, {
+    method: "POST",
+  });
+  return {
+    success: Boolean(result?.success),
+    message: readString(result, "message"),
+    latencyMs: readNumber(result, "latency_ms") ?? readNumber(result, "latencyMs"),
+    exitIp: readString(result, "exit_ip") ?? readString(result, "exitIp"),
+  };
+}
+
+function summarizeProxy(row: Record<string, unknown>): ProxySummary {
+  return {
+    id: (row.id as number | string) ?? "",
+    name: (row.name as string) ?? null,
+    protocol: (row.protocol as string) ?? null,
+    host: (row.host as string) ?? null,
+    port: typeof row.port === "number" ? row.port : null,
+    status: (row.status as string) ?? null,
+    latencyMs: readNumber(row, "latency_ms") ?? readNumber(row, "latencyMs"),
+  };
+}
+
+function readString(obj: unknown, key: string): string | null {
+  if (obj && typeof obj === "object" && key in obj) {
+    const value = (obj as Record<string, unknown>)[key];
+    if (typeof value === "string") return value;
+  }
+  return null;
+}
+
+function readNumber(obj: unknown, key: string): number | null {
+  if (obj && typeof obj === "object" && key in obj) {
+    const value = (obj as Record<string, unknown>)[key];
+    if (typeof value === "number") return value;
+  }
+  return null;
 }
 
 export async function exchangeClaudeCode(flow: { sessionId: string; code: string }) {
@@ -220,6 +303,9 @@ function summarizeAccount(value: RawSub2ApiAccount) {
     schedulable: value?.schedulable ?? null,
     errorMessage: value?.error_message ?? null,
     createdAt: value?.created_at ?? null,
+    displayName: value?.account_display_name ?? value?.display_name ?? null,
+    subscription: value?.subscription_type ?? value?.subscription_tier ?? null,
+    deadCause: value?.lifecycle_dead_cause ?? null,
   } satisfies Sub2ApiAccountSummary;
 }
 
