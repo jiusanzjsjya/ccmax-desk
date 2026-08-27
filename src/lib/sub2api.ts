@@ -395,6 +395,81 @@ export async function getDashboardStats(): Promise<PoolStats> {
   };
 }
 
+/**
+ * Pool-wide health scan for the ops/alerts board. Walks the account list in
+ * pages of 100 (bounded by scanMax) and keeps only "notable" accounts — those
+ * that trip a health/pressure signal (error, cooldown, unschedulable, or cost/
+ * RPM pressure ≥ a low floor). List-only (no usage batch) so it stays cheap
+ * enough for an auto-refresh loop. The client applies the operator's rule
+ * toggles + thresholds over the returned set, so the floor here is deliberately
+ * loose (0.5) to leave room for a lower client threshold.
+ */
+export type PoolAlertScan = {
+  stats: PoolStats | null;
+  notable: PoolAccount[];
+  scanned: number;
+  truncated: boolean;
+  concurrencySum: number;
+};
+
+export async function scanPoolAlerts(opts?: { scanMax?: number }): Promise<PoolAlertScan> {
+  const scanMax = Math.min(1000, Math.max(100, Math.floor(opts?.scanMax ?? 500)));
+  const pageSize = 100;
+  // Aggregate strip is cheap and independent — never let it block the scan.
+  const stats = await getDashboardStats().catch(() => null);
+
+  const notable: PoolAccount[] = [];
+  let scanned = 0;
+  let concurrencySum = 0;
+  let truncated = false;
+  const maxPages = Math.ceil(scanMax / pageSize);
+
+  for (let page = 1; page <= maxPages && scanned < scanMax; page += 1) {
+    const { items, total } = await listPoolAccounts({ page, pageSize, sortBy: "last_used_at", sortOrder: "desc" });
+    if (!items.length) break;
+
+    for (const account of items) {
+      scanned += 1;
+      concurrencySum += account.currentConcurrency ?? 0;
+      if (isNotableAccount(account)) notable.push(account);
+      if (scanned >= scanMax) break;
+    }
+
+    if (items.length < pageSize) break; // reached the last page — full coverage
+    if (scanned >= scanMax) {
+      truncated = total > scanned;
+      break;
+    }
+  }
+
+  return { stats, notable, scanned, truncated, concurrencySum };
+}
+
+/** Loose pre-filter: keep any account an alert rule could plausibly flag. */
+function isNotableAccount(account: PoolAccount): boolean {
+  if (account.status === "error") return true;
+  if (account.status === "disabled" || account.schedulable === false) return true;
+  if (hasFutureCooldown(account)) return true;
+  if (pressureRatio(account.currentWindowCost, account.windowCostLimit) >= 0.5) return true;
+  if (pressureRatio(account.currentRpm, account.baseRpm) >= 0.5) return true;
+  return false;
+}
+
+function hasFutureCooldown(account: PoolAccount): boolean {
+  const now = Date.now();
+  for (const ts of [account.overloadUntil, account.rateLimitResetAt, account.tempUnschedulableUntil]) {
+    if (!ts) continue;
+    const parsed = Date.parse(ts);
+    if (Number.isFinite(parsed) && parsed > now) return true;
+  }
+  return false;
+}
+
+function pressureRatio(current: number | null, limit: number | null): number {
+  if (!limit || limit <= 0 || current == null || current < 0) return 0;
+  return current / limit;
+}
+
 type RawWindowStats = { requests?: number; tokens?: number; cost?: number; standard_cost?: number; user_cost?: number };
 type RawUsageProgress = {
   utilization?: number;

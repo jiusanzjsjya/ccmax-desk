@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import PoolOpsBoard from "@/components/pool-ops-board";
+
 type WindowUse = {
   utilization: number;
   resetsAt: string | null;
@@ -119,6 +121,7 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
   const [page, setPage] = useState(1);
   const [view, setView] = useState<"card" | "list">("card");
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [mode, setMode] = useState<"accounts" | "ops">("accounts");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -169,15 +172,16 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
   }, [sub2ApiConfigured, sort, page, pageSize, search, group, status, redirectToLogin]);
 
   useEffect(() => {
+    if (mode !== "accounts") return;
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, mode]);
 
   useEffect(() => {
-    if (!autoRefresh || !sub2ApiConfigured) return;
+    if (!autoRefresh || !sub2ApiConfigured || mode !== "accounts") return;
     const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, sub2ApiConfigured, load]);
+  }, [autoRefresh, sub2ApiConfigured, load, mode]);
 
   function applySearch(event: React.FormEvent) {
     event.preventDefault();
@@ -217,17 +221,31 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
           <h3 id="pool-title">OAuth 账号调度与健康</h3>
         </div>
         <div className="pool-heading-actions">
-          <label className="setting-toggle pool-auto">
-            <span>自动刷新 15s</span>
-            <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
-            <i aria-hidden="true" />
-          </label>
-          <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
-            {loading ? "刷新中..." : "刷新"}
-          </button>
+          <div className="pool-view pool-modes" role="tablist" aria-label="账号池视图">
+            <button type="button" role="tab" aria-selected={mode === "accounts"} className={mode === "accounts" ? "is-active" : ""} onClick={() => setMode("accounts")}>
+              账号列表
+            </button>
+            <button type="button" role="tab" aria-selected={mode === "ops"} className={mode === "ops" ? "is-active" : ""} onClick={() => setMode("ops")}>
+              运维告警
+            </button>
+          </div>
+          {mode === "accounts" ? (
+            <>
+              <label className="setting-toggle pool-auto">
+                <span>自动刷新 15s</span>
+                <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+                <i aria-hidden="true" />
+              </label>
+              <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
+                {loading ? "刷新中..." : "刷新"}
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
+      {mode === "ops" ? <PoolOpsBoard sub2ApiConfigured={sub2ApiConfigured} /> : (
+      <>
       <div className="pool-stats">
         <PoolStat k="可用账号" v={available} tone="ok" />
         <PoolStat k="冷却中" v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
@@ -305,6 +323,8 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
           </button>
         </div>
       </div>
+      </>
+      )}
     </section>
   );
 }
