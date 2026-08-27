@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { env } from "@/lib/env";
 import type { Role } from "@/lib/roles";
-import { BACKEND_KINDS, type BackendKind } from "@/lib/backends/kinds";
+import { customIdFromRef, customRef, refKind, type BackendRef } from "@/lib/backends/kinds";
 
 export type LocalAccount = {
   id: string;
@@ -48,16 +48,19 @@ export type RelayBackendConfig = {
   channelType: number;
   models: string;
 };
+/** Connection fields of one self-built gateway (legacy single-gateway shape). */
 export type CustomBackendConfig = { url: string; token: string; listUrl: string };
+/** One self-built gateway. `id` makes multiple gateways individually addressable. */
+export type CustomGateway = CustomBackendConfig & { id: string; name: string };
 
 /** Superadmin-editable multi-platform backend configuration (persisted). */
 export type BackendConfigStore = {
-  defaultBackend: BackendKind;
-  enabled: BackendKind[];
+  defaultBackend: BackendRef;
+  enabled: BackendRef[];
   sub2api: Sub2ApiBackendConfig;
   newapi: RelayBackendConfig;
   oneapi: Omit<RelayBackendConfig, "userId">;
-  custom: CustomBackendConfig;
+  customs: CustomGateway[];
 };
 
 export type LocalAccountStore = {
@@ -75,10 +78,27 @@ const defaultSettings: SystemSettings = {
   allowUserAccountPoolView: false,
 };
 
+/** The connection/config-bearing slice of the backend store used for checks. */
+type BackendConfigFields = Pick<BackendConfigStore, "sub2api" | "newapi" | "oneapi" | "customs">;
+
+/** Singleton (non-custom) backend kinds; custom gateways are addressed by ref. */
+const SINGLETON_KINDS = ["sub2api", "newapi", "oneapi"] as const;
+
 /** Seed backend config from env on first run; the store is authoritative after. */
 function defaultBackendConfig(): BackendConfigStore {
-  const config: Omit<BackendConfigStore, "enabled"> = {
-    defaultBackend: env.BACKEND_KIND,
+  const customs: CustomGateway[] = env.CUSTOM_BACKEND_URL
+    ? [
+        {
+          id: randomUUID(),
+          name: "自建网关",
+          url: env.CUSTOM_BACKEND_URL,
+          token: env.CUSTOM_BACKEND_TOKEN,
+          listUrl: env.CUSTOM_BACKEND_LIST_URL,
+        },
+      ]
+    : [];
+
+  const config: BackendConfigFields = {
     sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null },
     newapi: {
       baseUrl: env.NEWAPI_BASE_URL,
@@ -93,26 +113,49 @@ function defaultBackendConfig(): BackendConfigStore {
       channelType: env.ONEAPI_CHANNEL_TYPE,
       models: env.ONEAPI_MODELS,
     },
-    custom: { url: env.CUSTOM_BACKEND_URL, token: env.CUSTOM_BACKEND_TOKEN, listUrl: env.CUSTOM_BACKEND_LIST_URL },
+    customs,
   };
-  const enabled = BACKEND_KINDS.filter((kind) => isBackendConfigInPlace(kind, config));
-  return { ...config, enabled: enabled.length ? enabled : ["sub2api"] };
+
+  // env.BACKEND_KIND is a kind; a "custom" seed maps to the seeded gateway ref.
+  const defaultBackend: BackendRef =
+    env.BACKEND_KIND === "custom" ? (customs[0] ? customRef(customs[0].id) : "sub2api") : env.BACKEND_KIND;
+
+  const enabled = configuredRefs(config);
+  return { ...config, defaultBackend, enabled: enabled.length ? enabled : ["sub2api"] };
 }
 
-/** True when a backend has the minimum fields to be usable. */
-export function isBackendConfigInPlace(kind: BackendKind, config: Omit<BackendConfigStore, "enabled" | "defaultBackend">) {
-  switch (kind) {
+/** True when the target a ref points at has the minimum fields to be usable. */
+export function isBackendRefConfigured(ref: BackendRef, config: BackendConfigFields) {
+  switch (refKind(ref)) {
     case "sub2api":
       return Boolean(config.sub2api.baseUrl && config.sub2api.adminToken);
     case "newapi":
       return Boolean(config.newapi.baseUrl && config.newapi.adminToken);
     case "oneapi":
       return Boolean(config.oneapi.baseUrl && config.oneapi.adminToken);
-    case "custom":
-      return Boolean(config.custom.url);
+    case "custom": {
+      const id = customIdFromRef(ref);
+      const gateway = id ? config.customs.find((item) => item.id === id) : undefined;
+      return Boolean(gateway?.url);
+    }
     default:
       return false;
   }
+}
+
+/** All refs (singletons + gateways) that are currently configured. */
+function configuredRefs(config: BackendConfigFields): BackendRef[] {
+  const refs: BackendRef[] = SINGLETON_KINDS.filter((kind) => isBackendRefConfigured(kind, config));
+  for (const gateway of config.customs) {
+    const ref = customRef(gateway.id);
+    if (isBackendRefConfigured(ref, config)) refs.push(ref);
+  }
+  return refs;
+}
+
+/** The set of refs that exist at all (singletons + defined gateways), configured or not. */
+function knownRefs(customs: CustomGateway[]): Set<BackendRef> {
+  return new Set<BackendRef>([...SINGLETON_KINDS, ...customs.map((gateway) => customRef(gateway.id))]);
 }
 
 export async function getAccountStore(): Promise<LocalAccountStore> {
@@ -240,13 +283,16 @@ export async function updateSystemSettings(patch: Partial<SystemSettings>) {
   });
 }
 
+/** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
+export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
+
 export type BackendConfigPatch = {
-  defaultBackend?: BackendKind;
-  enabled?: BackendKind[];
+  defaultBackend?: BackendRef;
+  enabled?: BackendRef[];
   sub2api?: Partial<Sub2ApiBackendConfig>;
   newapi?: Partial<RelayBackendConfig>;
   oneapi?: Partial<Omit<RelayBackendConfig, "userId">>;
-  custom?: Partial<CustomBackendConfig>;
+  customs?: CustomGatewayPatch[];
 };
 
 export async function getBackendConfigStore() {
@@ -257,13 +303,36 @@ export async function getBackendConfigStore() {
 export async function updateBackendSettings(patch: BackendConfigPatch) {
   return mutateStore((store) => {
     const backends = store.backends;
-    if (patch.defaultBackend) backends.defaultBackend = patch.defaultBackend;
-    if (patch.enabled) backends.enabled = patch.enabled.filter((kind) => BACKEND_KINDS.includes(kind));
     if (patch.sub2api) backends.sub2api = { ...backends.sub2api, ...patch.sub2api };
     if (patch.newapi) backends.newapi = { ...backends.newapi, ...patch.newapi };
     if (patch.oneapi) backends.oneapi = { ...backends.oneapi, ...patch.oneapi };
-    if (patch.custom) backends.custom = { ...backends.custom, ...patch.custom };
+    // Client submits the whole gateway list; merge by id so removed ones drop out.
+    if (patch.customs) backends.customs = mergeCustomGateways(backends.customs, patch.customs);
+
+    // enabled / default may point at gateways; keep them valid against the current set.
+    const known = knownRefs(backends.customs);
+    const nextEnabled = patch.enabled ?? backends.enabled;
+    backends.enabled = nextEnabled.filter((ref) => known.has(ref));
+    if (patch.defaultBackend && known.has(patch.defaultBackend)) backends.defaultBackend = patch.defaultBackend;
+    if (!known.has(backends.defaultBackend)) backends.defaultBackend = backends.enabled[0] ?? "sub2api";
+
     return backends;
+  });
+}
+
+/** Merge an incoming gateway list into the stored one, preserving blank-token secrets. */
+function mergeCustomGateways(existing: CustomGateway[], incoming: CustomGatewayPatch[]): CustomGateway[] {
+  const byId = new Map(existing.map((gateway) => [gateway.id, gateway]));
+  return incoming.map((patch) => {
+    const prev = patch.id ? byId.get(patch.id) : undefined;
+    return {
+      id: patch.id || randomUUID(),
+      name: ((patch.name ?? prev?.name ?? "").trim()) || "自建网关",
+      url: (patch.url ?? prev?.url ?? "").trim(),
+      // Blank token means "unchanged" for an existing gateway.
+      token: patch.token !== undefined && patch.token !== "" ? patch.token : prev?.token ?? "",
+      listUrl: (patch.listUrl ?? prev?.listUrl ?? "").trim(),
+    };
   });
 }
 
@@ -327,21 +396,66 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
   };
 }
 
-function normalizeBackends(value?: Partial<BackendConfigStore>): BackendConfigStore {
+/** Persisted shape may predate `customs` (single `custom`) — accept both. */
+type LegacyBackendConfig = Partial<BackendConfigStore> & { custom?: Partial<CustomBackendConfig> };
+
+function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
   const defaults = defaultBackendConfig();
   if (!value) return defaults;
 
-  return {
-    defaultBackend: value.defaultBackend ?? defaults.defaultBackend,
-    enabled:
-      Array.isArray(value.enabled) && value.enabled.length
-        ? value.enabled.filter((kind) => BACKEND_KINDS.includes(kind))
-        : defaults.enabled,
-    sub2api: { ...defaults.sub2api, ...(value.sub2api || {}) },
-    newapi: { ...defaults.newapi, ...(value.newapi || {}) },
-    oneapi: { ...defaults.oneapi, ...(value.oneapi || {}) },
-    custom: { ...defaults.custom, ...(value.custom || {}) },
-  };
+  const customs = migrateCustomGateways(value, defaults.customs);
+
+  const sub2api = { ...defaults.sub2api, ...(value.sub2api || {}) };
+  const newapi = { ...defaults.newapi, ...(value.newapi || {}) };
+  const oneapi = { ...defaults.oneapi, ...(value.oneapi || {}) };
+
+  // Legacy stores used the bare "custom" ref; remap it to the migrated gateway.
+  const legacyCustomRef = customs[0] ? customRef(customs[0].id) : null;
+  const mapRef = (ref: string): BackendRef => (ref === "custom" && legacyCustomRef ? legacyCustomRef : ref);
+  const known = knownRefs(customs);
+
+  const mappedEnabled = Array.isArray(value.enabled) ? value.enabled.map(mapRef).filter((ref) => known.has(ref)) : [];
+  const enabled = mappedEnabled.length ? mappedEnabled : defaults.enabled;
+
+  const mappedDefault = typeof value.defaultBackend === "string" ? mapRef(value.defaultBackend) : null;
+  const defaultBackend =
+    mappedDefault && known.has(mappedDefault)
+      ? mappedDefault
+      : known.has(defaults.defaultBackend)
+        ? defaults.defaultBackend
+        : enabled[0] ?? "sub2api";
+
+  return { defaultBackend, enabled, sub2api, newapi, oneapi, customs };
+}
+
+/** Prefer the new `customs` array; otherwise lift a legacy single `custom` into a gateway. */
+function migrateCustomGateways(value: LegacyBackendConfig, fallback: CustomGateway[]): CustomGateway[] {
+  if (Array.isArray(value.customs)) {
+    return value.customs
+      .filter((gateway): gateway is CustomGateway => Boolean(gateway) && typeof gateway === "object")
+      .map((gateway) => ({
+        id: typeof gateway.id === "string" && gateway.id ? gateway.id : randomUUID(),
+        name: (typeof gateway.name === "string" && gateway.name.trim()) || "自建网关",
+        url: typeof gateway.url === "string" ? gateway.url : "",
+        token: typeof gateway.token === "string" ? gateway.token : "",
+        listUrl: typeof gateway.listUrl === "string" ? gateway.listUrl : "",
+      }));
+  }
+
+  const legacy = value.custom;
+  if (legacy && (legacy.url || legacy.token || legacy.listUrl)) {
+    return [
+      {
+        id: randomUUID(),
+        name: "自建网关",
+        url: legacy.url ?? "",
+        token: legacy.token ?? "",
+        listUrl: legacy.listUrl ?? "",
+      },
+    ];
+  }
+
+  return fallback;
 }
 
 function hashPassword(password: string) {

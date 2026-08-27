@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
 import { selectableBackends } from "@/lib/backend-config";
-import { backendLabel } from "@/lib/backends/kinds";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +15,7 @@ export async function GET() {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  const { default: defaultBackend, kinds } = await selectableBackends();
-  return NextResponse.json({
-    default: defaultBackend,
-    items: kinds.map((kind) => ({ kind, label: backendLabel(kind) })),
-  });
+  // items: [{ ref, kind, label }] — ref is the value the wizard sends back.
+  const { default: defaultBackend, items } = await selectableBackends();
+  return NextResponse.json({ default: defaultBackend, items });
 }

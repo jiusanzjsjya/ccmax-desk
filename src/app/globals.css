@@ -331,6 +331,35 @@ a {
   gap: 18px;
 }
 
+/* Prerequisite target-platform bar, sits above the tabs and step tracker. */
+.target-backend-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(16, 40, 44, 0.045);
+}
+
+.target-backend-bar .field-label {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.target-backend-bar .text-input {
+  max-width: 320px;
+}
+
+/* Self-built gateways block in the superadmin backend config panel. */
+.gateway-section {
+  display: grid;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
 .workspace-nav {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

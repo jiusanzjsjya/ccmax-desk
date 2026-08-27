@@ -1,4 +1,4 @@
-import type { CustomBackendConfig } from "@/lib/account-store";
+import type { CustomGateway } from "@/lib/account-store";
 import { Sub2ApiError } from "@/lib/sub2api";
 import type { PoolAccountSummary, PoolBackend } from "./types";
 
@@ -8,10 +8,10 @@ import type { PoolAccountSummary, PoolBackend } from "./types";
  * (GET). The gateway owner defines the contract, so this makes no
  * version-specific assumptions beyond the JSON payload shape below.
  */
-export function customBackend(config: CustomBackendConfig): PoolBackend {
+export function customBackend(config: CustomGateway): PoolBackend {
   return {
     kind: "custom",
-    label: "自建网关",
+    label: config.name || "自建网关",
 
     async createClaudeAccount(input) {
       if (!config.url) {
@@ -76,7 +76,7 @@ export function customBackend(config: CustomBackendConfig): PoolBackend {
   };
 }
 
-async function request(config: CustomBackendConfig, url: string, init: RequestInit) {
+async function request(config: CustomGateway, url: string, init: RequestInit) {
   let response: Response;
 
   try {

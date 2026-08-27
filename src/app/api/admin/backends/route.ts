@@ -5,19 +5,17 @@ import { getAccessContext } from "@/lib/access";
 import {
   addAuditEvent,
   getBackendConfigStore,
-  isBackendConfigInPlace,
+  isBackendRefConfigured,
   updateBackendSettings,
   type BackendConfigPatch,
 } from "@/lib/account-store";
-import { BACKEND_KINDS } from "@/lib/backends/kinds";
+import { customRef } from "@/lib/backends/kinds";
 
 export const dynamic = "force-dynamic";
 
-const kindEnum = z.enum(["sub2api", "newapi", "oneapi", "custom"]);
-
 const patchSchema = z.object({
-  defaultBackend: kindEnum.optional(),
-  enabled: z.array(kindEnum).max(4).optional(),
+  defaultBackend: z.string().trim().max(80).optional(),
+  enabled: z.array(z.string().trim().max(80)).max(40).optional(),
   sub2api: z
     .object({
       baseUrl: z.string().trim().max(300).optional(),
@@ -42,12 +40,17 @@ const patchSchema = z.object({
       models: z.string().trim().max(2000).optional(),
     })
     .optional(),
-  custom: z
-    .object({
-      url: z.string().trim().max(300).optional(),
-      token: z.string().max(4000).optional(),
-      listUrl: z.string().trim().max(300).optional(),
-    })
+  customs: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(64).optional(),
+        name: z.string().trim().max(80).optional(),
+        url: z.string().trim().max(300).optional(),
+        token: z.string().max(4000).optional(),
+        listUrl: z.string().trim().max(300).optional(),
+      }),
+    )
+    .max(20)
     .optional(),
 });
 
@@ -60,7 +63,12 @@ export async function GET() {
   return NextResponse.json({
     defaultBackend: backends.defaultBackend,
     enabled: backends.enabled,
-    configured: Object.fromEntries(BACKEND_KINDS.map((kind) => [kind, isBackendConfigInPlace(kind, backends)])),
+    // Whether each singleton platform is usable; gateways carry their own flag.
+    configured: {
+      sub2api: isBackendRefConfigured("sub2api", backends),
+      newapi: isBackendRefConfigured("newapi", backends),
+      oneapi: isBackendRefConfigured("oneapi", backends),
+    },
     // Tokens are never returned; only whether they are set.
     sub2api: { baseUrl: backends.sub2api.baseUrl, hasAdminToken: Boolean(backends.sub2api.adminToken), proxyId: backends.sub2api.proxyId },
     newapi: {
@@ -76,7 +84,15 @@ export async function GET() {
       channelType: backends.oneapi.channelType,
       models: backends.oneapi.models,
     },
-    custom: { url: backends.custom.url, hasToken: Boolean(backends.custom.token), listUrl: backends.custom.listUrl },
+    customs: backends.customs.map((gateway) => ({
+      id: gateway.id,
+      ref: customRef(gateway.id),
+      name: gateway.name,
+      url: gateway.url,
+      hasToken: Boolean(gateway.token),
+      listUrl: gateway.listUrl,
+      configured: isBackendRefConfigured(customRef(gateway.id), backends),
+    })),
   });
 }
 
@@ -100,15 +116,15 @@ export async function PATCH(request: Request) {
     actorName: context.session.displayName,
     actorRole: context.role,
     action: "backends.update",
-    details: JSON.stringify({ keys: Object.keys(parsed.data), defaultBackend: backends.defaultBackend, enabled: backends.enabled }),
+    details: JSON.stringify({
+      keys: Object.keys(parsed.data),
+      defaultBackend: backends.defaultBackend,
+      enabled: backends.enabled,
+      gateways: backends.customs.length,
+    }),
   });
 
-  return NextResponse.json({
-    ok: true,
-    configured: Object.fromEntries(BACKEND_KINDS.map((kind) => [kind, isBackendConfigInPlace(kind, backends)])),
-    defaultBackend: backends.defaultBackend,
-    enabled: backends.enabled,
-  });
+  return NextResponse.json({ ok: true, defaultBackend: backends.defaultBackend, enabled: backends.enabled });
 }
 
 function stripBlankSecrets(input: z.infer<typeof patchSchema>): BackendConfigPatch {
@@ -128,9 +144,7 @@ function stripBlankSecrets(input: z.infer<typeof patchSchema>): BackendConfigPat
     patch.oneapi = { ...input.oneapi };
     if (!input.oneapi.adminToken) delete patch.oneapi.adminToken;
   }
-  if (input.custom) {
-    patch.custom = { ...input.custom };
-    if (!input.custom.token) delete patch.custom.token;
-  }
+  // Per-gateway blank tokens are treated as "unchanged" by the store merge.
+  if (input.customs) patch.customs = input.customs;
   return patch;
 }

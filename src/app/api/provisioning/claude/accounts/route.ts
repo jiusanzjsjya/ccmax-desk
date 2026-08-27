@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { accountPoolAccess, getAccessContext } from "@/lib/access";
 import { isBackendConfigured } from "@/lib/backend-config";
 import { resolveBackend } from "@/lib/backends/registry";
-import { isBackendKind } from "@/lib/backends/kinds";
 import { mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +18,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "account_pool_forbidden" }, { status: 403 });
   }
 
+  // A backend ref ("sub2api" | "newapi" | "oneapi" | "custom:<id>"); omitted → default.
   const backendParam = new URL(request.url).searchParams.get("backend");
-  const backend = isBackendKind(backendParam) ? backendParam : undefined;
+  const backend = backendParam && backendParam.length <= 80 ? backendParam : undefined;
 
   if (backend && !(await isBackendConfigured(backend))) {
     return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });

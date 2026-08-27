@@ -1,12 +1,12 @@
 import {
   getBackendConfigStore,
-  isBackendConfigInPlace,
+  isBackendRefConfigured,
   type BackendConfigStore,
-  type CustomBackendConfig,
+  type CustomGateway,
   type RelayBackendConfig,
   type Sub2ApiBackendConfig,
 } from "@/lib/account-store";
-import type { BackendKind } from "@/lib/backends/kinds";
+import { backendLabel, customIdFromRef, refKind, type BackendKind, type BackendRef } from "@/lib/backends/kinds";
 
 /** The superadmin-managed backend configuration (store over env seed). */
 export async function getBackendSettings(): Promise<BackendConfigStore> {
@@ -38,12 +38,13 @@ export async function getRelayConfig(kind: "newapi" | "oneapi"): Promise<RelayBa
   return { ...settings.oneapi, userId: "" };
 }
 
-export async function getCustomConfig(): Promise<CustomBackendConfig> {
-  return (await getBackendSettings()).custom;
+export async function getCustomGateway(id: string): Promise<CustomGateway | null> {
+  const { customs } = await getBackendSettings();
+  return customs.find((gateway) => gateway.id === id) ?? null;
 }
 
-export async function isBackendConfigured(kind: BackendKind): Promise<boolean> {
-  return isBackendConfigInPlace(kind, await getBackendSettings());
+export async function isBackendConfigured(ref: BackendRef): Promise<boolean> {
+  return isBackendRefConfigured(ref, await getBackendSettings());
 }
 
 /** Sub2API brokers the Claude OAuth handshake, so it must be configured to start any flow. */
@@ -51,13 +52,36 @@ export async function isSub2ApiConfigured(): Promise<boolean> {
   return isBackendConfigured("sub2api");
 }
 
+export type SelectableBackend = { ref: BackendRef; kind: BackendKind; label: string };
+
 /** Backends the wizard may offer: enabled AND actually configured. */
-export async function selectableBackends(): Promise<{ default: BackendKind; kinds: BackendKind[] }> {
+export async function selectableBackends(): Promise<{ default: BackendRef; items: SelectableBackend[] }> {
   const settings = await getBackendSettings();
-  const kinds = settings.enabled.filter((kind) => isBackendConfigInPlace(kind, settings));
-  const fallback = kinds.length ? kinds : isBackendConfigInPlace("sub2api", settings) ? (["sub2api"] as BackendKind[]) : [];
-  const chosen = kinds.includes(settings.defaultBackend) ? settings.defaultBackend : fallback[0];
-  return { default: chosen ?? "sub2api", kinds: fallback };
+  const enabledItems = settings.enabled
+    .filter((ref) => isBackendRefConfigured(ref, settings))
+    .map((ref) => ({ ref, kind: refKind(ref), label: refLabel(ref, settings) }));
+
+  // Fall back to Sub2API when nothing is enabled+configured but Sub2API itself is usable.
+  const items: SelectableBackend[] =
+    enabledItems.length
+      ? enabledItems
+      : isBackendRefConfigured("sub2api", settings)
+        ? [{ ref: "sub2api", kind: "sub2api", label: "Sub2API" }]
+        : [];
+
+  const refs = new Set(items.map((item) => item.ref));
+  const chosen = refs.has(settings.defaultBackend) ? settings.defaultBackend : items[0]?.ref;
+  return { default: chosen ?? "sub2api", items };
+}
+
+/** Display label for a ref — a gateway's own name, or the singleton kind label. */
+function refLabel(ref: BackendRef, settings: BackendConfigStore): string {
+  const id = customIdFromRef(ref);
+  if (id) {
+    const gateway = settings.customs.find((item) => item.id === id);
+    return gateway?.name || "自建网关";
+  }
+  return backendLabel(refKind(ref));
 }
 
 export function assertSub2ApiConfig(config: Sub2ApiBackendConfig) {

@@ -17,8 +17,9 @@ const completeSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   // Local label only; Sub2API has no country field, so it is folded into notes.
   country: z.string().trim().max(60).optional(),
-  // Target account pool. Defaults to the superadmin's default backend.
-  backend: z.enum(["sub2api", "newapi", "oneapi", "custom"]).optional(),
+  // Target account pool ref ("sub2api" | "newapi" | "oneapi" | "custom:<id>").
+  // Defaults to the superadmin's default backend when omitted.
+  backend: z.string().trim().max(80).optional(),
   groupIds: z.array(z.number().int().positive()).max(50).default([]),
 });
 

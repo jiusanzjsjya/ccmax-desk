@@ -3,24 +3,44 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { BACKEND_KINDS, backendLabel, type BackendKind } from "@/lib/backends/kinds";
+import { customRef } from "@/lib/backends/kinds";
+
+type SingletonKind = "sub2api" | "newapi" | "oneapi";
+
+const SINGLETONS: { kind: SingletonKind; label: string }[] = [
+  { kind: "sub2api", label: "Sub2API" },
+  { kind: "newapi", label: "new-api" },
+  { kind: "oneapi", label: "one-api" },
+];
+
+type CustomGatewayView = {
+  id: string;
+  ref: string;
+  name: string;
+  url: string;
+  hasToken: boolean;
+  listUrl: string;
+  configured: boolean;
+};
 
 type BackendConfig = {
-  defaultBackend: BackendKind;
-  enabled: BackendKind[];
-  configured: Record<BackendKind, boolean>;
+  defaultBackend: string;
+  enabled: string[];
+  configured: Record<SingletonKind, boolean>;
   sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null };
   newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string };
   oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string };
-  custom: { url: string; hasToken: boolean; listUrl: string };
+  customs: CustomGatewayView[];
 };
 
-type TokenInputs = { sub2api: string; newapi: string; oneapi: string; custom: string };
+type TokenInputs = { sub2api: string; newapi: string; oneapi: string; customs: Record<string, string> };
+
+const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", customs: {} };
 
 export default function BackendConfigPanel() {
   const router = useRouter();
   const [config, setConfig] = useState<BackendConfig | null>(null);
-  const [tokens, setTokens] = useState<TokenInputs>({ sub2api: "", newapi: "", oneapi: "", custom: "" });
+  const [tokens, setTokens] = useState<TokenInputs>(emptyTokens);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -42,8 +62,8 @@ export default function BackendConfigPanel() {
         setError("读取后端配置失败。");
         return;
       }
-      setConfig(payload);
-      setTokens({ sub2api: "", newapi: "", oneapi: "", custom: "" });
+      setConfig({ ...payload, customs: Array.isArray(payload.customs) ? payload.customs : [] });
+      setTokens(emptyTokens);
     } catch {
       setError("无法读取后端配置。");
     } finally {
@@ -60,17 +80,55 @@ export default function BackendConfigPanel() {
     setConfig((current) => (current ? { ...current, [key]: value } : current));
   }
 
-  function patchPlatform<K extends "sub2api" | "newapi" | "oneapi" | "custom">(key: K, value: Partial<BackendConfig[K]>) {
+  function patchPlatform<K extends "sub2api" | "newapi" | "oneapi">(key: K, value: Partial<BackendConfig[K]>) {
     setConfig((current) => (current ? { ...current, [key]: { ...current[key], ...value } } : current));
   }
 
-  function toggleEnabled(kind: BackendKind, on: boolean) {
+  function patchGateway(id: string, value: Partial<CustomGatewayView>) {
+    setConfig((current) =>
+      current ? { ...current, customs: current.customs.map((gateway) => (gateway.id === id ? { ...gateway, ...value } : gateway)) } : current,
+    );
+  }
+
+  function setGatewayToken(id: string, value: string) {
+    setTokens((current) => ({ ...current, customs: { ...current.customs, [id]: value } }));
+  }
+
+  function toggleEnabled(ref: string, on: boolean) {
     setConfig((current) => {
       if (!current) return current;
       const set = new Set(current.enabled);
-      if (on) set.add(kind);
-      else set.delete(kind);
-      return { ...current, enabled: BACKEND_KINDS.filter((k) => set.has(k)) };
+      if (on) set.add(ref);
+      else set.delete(ref);
+      return { ...current, enabled: orderRefs(set, current.customs) };
+    });
+  }
+
+  function addGateway() {
+    const id = crypto.randomUUID();
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            customs: [...current.customs, { id, ref: customRef(id), name: "自建网关", url: "", hasToken: false, listUrl: "", configured: false }],
+          }
+        : current,
+    );
+    setGatewayToken(id, "");
+  }
+
+  function removeGateway(id: string) {
+    setConfig((current) => {
+      if (!current) return current;
+      const ref = customRef(id);
+      const customs = current.customs.filter((gateway) => gateway.id !== id);
+      const enabled = current.enabled.filter((value) => value !== ref);
+      const defaultBackend = current.defaultBackend === ref ? enabled[0] ?? "sub2api" : current.defaultBackend;
+      return { ...current, customs, enabled, defaultBackend };
+    });
+    setTokens((current) => {
+      const { [id]: _dropped, ...rest } = current.customs;
+      return { ...current, customs: rest };
     });
   }
 
@@ -102,11 +160,13 @@ export default function BackendConfigPanel() {
           models: config.oneapi.models,
           ...(tokens.oneapi ? { adminToken: tokens.oneapi } : {}),
         },
-        custom: {
-          url: config.custom.url,
-          listUrl: config.custom.listUrl,
-          ...(tokens.custom ? { token: tokens.custom } : {}),
-        },
+        customs: config.customs.map((gateway) => ({
+          id: gateway.id,
+          name: gateway.name,
+          url: gateway.url,
+          listUrl: gateway.listUrl,
+          ...(tokens.customs[gateway.id] ? { token: tokens.customs[gateway.id] } : {}),
+        })),
       };
 
       const response = await fetch("/api/admin/backends", {
@@ -148,25 +208,28 @@ export default function BackendConfigPanel() {
           <div className="management-form">
             <div>
               <p className="management-kicker">默认平台与启用范围</p>
-              <p className="management-help">默认平台用于向导未选择时；启用的平台会出现在授权向导的目标选择里。</p>
+              <p className="management-help">默认平台用于向导未选择时；启用的平台会出现在授权向导顶部的目标平台里。</p>
             </div>
             <label className="field-label" htmlFor="default-backend">默认平台</label>
             <select
               id="default-backend"
               className="text-input"
               value={config.defaultBackend}
-              onChange={(event) => patch("defaultBackend", event.target.value as BackendKind)}
+              onChange={(event) => patch("defaultBackend", event.target.value)}
               disabled={saving}
             >
-              {BACKEND_KINDS.map((kind) => (
-                <option key={kind} value={kind}>{backendLabel(kind)}</option>
+              {SINGLETONS.map(({ kind, label }) => (
+                <option key={kind} value={kind}>{label}</option>
+              ))}
+              {config.customs.map((gateway) => (
+                <option key={gateway.id} value={gateway.ref}>{gateway.name || "自建网关"}</option>
               ))}
             </select>
             <div className="settings-panel">
-              {BACKEND_KINDS.map((kind) => (
+              {SINGLETONS.map(({ kind, label }) => (
                 <label className={`setting-toggle ${saving ? "is-disabled" : ""}`} key={kind}>
                   <span>
-                    启用 {backendLabel(kind)}
+                    启用 {label}
                     {config.configured[kind] ? "" : "（未配置）"}
                   </span>
                   <input
@@ -226,18 +289,58 @@ export default function BackendConfigPanel() {
                 </div>
               </Field>
             </PlatformCard>
+          </div>
 
-            <PlatformCard title="自建网关" configured={config.configured.custom}>
-              <Field label="创建账号 URL">
-                <input className="text-input" value={config.custom.url} onChange={(e) => patchPlatform("custom", { url: e.target.value })} placeholder="https://gateway.example.com/accounts" disabled={saving} />
-              </Field>
-              <Field label="令牌（可选）">
-                <TokenInput has={config.custom.hasToken} value={tokens.custom} onChange={(v) => setTokens((t) => ({ ...t, custom: v }))} disabled={saving} />
-              </Field>
-              <Field label="账号列表 URL（可选）">
-                <input className="text-input" value={config.custom.listUrl} onChange={(e) => patchPlatform("custom", { listUrl: e.target.value })} placeholder="留空则不展示账号池" disabled={saving} />
-              </Field>
-            </PlatformCard>
+          <div className="gateway-section">
+            <div className="management-heading">
+              <div>
+                <p className="management-kicker">自建网关（可多个）</p>
+                <p className="management-help">每个网关独立配置与启用，会作为独立目标平台出现在向导里。</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={addGateway} disabled={saving}>
+                + 添加自建网关
+              </button>
+            </div>
+
+            {config.customs.length ? (
+              <div className="management-grid">
+                {config.customs.map((gateway) => (
+                  <div className="settings-panel" key={gateway.id}>
+                    <div className="flow-card-head">
+                      <p className="management-kicker">{gateway.name || "自建网关"}</p>
+                      <span className={`account-status ${gateway.configured ? "is-alive" : "is-dead"}`}>{gateway.configured ? "已配置" : "未配置"}</span>
+                    </div>
+                    <Field label="名称">
+                      <input className="text-input" value={gateway.name} onChange={(e) => patchGateway(gateway.id, { name: e.target.value })} placeholder="例如 网关-A" disabled={saving} />
+                    </Field>
+                    <Field label="创建账号 URL">
+                      <input className="text-input" value={gateway.url} onChange={(e) => patchGateway(gateway.id, { url: e.target.value })} placeholder="https://gateway.example.com/accounts" disabled={saving} />
+                    </Field>
+                    <Field label="令牌（可选）">
+                      <TokenInput has={gateway.hasToken} value={tokens.customs[gateway.id] ?? ""} onChange={(v) => setGatewayToken(gateway.id, v)} disabled={saving} />
+                    </Field>
+                    <Field label="账号列表 URL（可选）">
+                      <input className="text-input" value={gateway.listUrl} onChange={(e) => patchGateway(gateway.id, { listUrl: e.target.value })} placeholder="留空则不展示账号池" disabled={saving} />
+                    </Field>
+                    <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
+                      <span>启用该网关</span>
+                      <input
+                        type="checkbox"
+                        checked={config.enabled.includes(gateway.ref)}
+                        disabled={saving}
+                        onChange={(event) => toggleEnabled(gateway.ref, event.target.checked)}
+                      />
+                      <i aria-hidden="true" />
+                    </label>
+                    <button className="secondary-button" type="button" onClick={() => removeGateway(gateway.id)} disabled={saving}>
+                      移除该网关
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">还没有自建网关，点「添加自建网关」新增。</p>
+            )}
           </div>
 
           <div className="wizard-actions">
@@ -252,6 +355,14 @@ export default function BackendConfigPanel() {
       {error ? <div className="error-box" role="alert">{error}</div> : null}
     </section>
   );
+}
+
+/** Keep enabled refs in a stable order: singletons first, then gateways as listed. */
+function orderRefs(refs: Set<string>, customs: CustomGatewayView[]): string[] {
+  const ordered: string[] = [];
+  for (const { kind } of SINGLETONS) if (refs.has(kind)) ordered.push(kind);
+  for (const gateway of customs) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
+  return ordered;
 }
 
 function PlatformCard({ title, configured, children }: { title: string; configured: boolean; children: React.ReactNode }) {

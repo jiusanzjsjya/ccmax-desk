@@ -50,7 +50,7 @@ type ProxyOption = {
   latencyMs: number | null;
 };
 
-type BackendOption = { kind: string; label: string };
+type BackendOption = { ref: string; kind: string; label: string };
 
 const MAX_BATCH = 5;
 
@@ -161,9 +161,9 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         const payload = (await response.json().catch(() => ({}))) as { default?: string; items?: BackendOption[] };
         if (cancelled || !payload.items?.length) return;
         setBackends(payload.items);
-        setSelectedBackend(payload.default && payload.items.some((item) => item.kind === payload.default)
+        setSelectedBackend(payload.default && payload.items.some((item) => item.ref === payload.default)
           ? payload.default
-          : payload.items[0].kind);
+          : payload.items[0].ref);
       } catch {
         // Backend selection is optional; the server falls back to the default.
       }
@@ -352,6 +352,25 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         </div>
       ) : null}
 
+      {backends.length ? (
+        <div className="target-backend-bar">
+          <label className="field-label" htmlFor="target-backend">目标平台</label>
+          <select
+            id="target-backend"
+            className="text-input"
+            value={selectedBackend}
+            onChange={(event) => setSelectedBackend(event.target.value)}
+            disabled={loading}
+          >
+            {backends.map((backend) => (
+              <option key={backend.ref} value={backend.ref}>
+                {backend.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className={`workspace-nav ${canViewAccountPool ? "" : "is-compact"}`} role="tablist" aria-label="账号接入视图">
         <button className={`workspace-tab ${activeTab === "wizard" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("wizard")}>
           授权向导
@@ -406,9 +425,6 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           proxyTest={proxyTest}
           country={country}
           setCountry={setCountry}
-          backends={backends}
-          selectedBackend={selectedBackend}
-          setSelectedBackend={setSelectedBackend}
         />
       )}
 
@@ -458,9 +474,6 @@ function WizardView({
   proxyTest,
   country,
   setCountry,
-  backends,
-  selectedBackend,
-  setSelectedBackend,
 }: {
   step: Step;
   slots: Slot[];
@@ -490,9 +503,6 @@ function WizardView({
   proxyTest: { status: "idle" | "testing" | "ok" | "error"; message: string };
   country: string;
   setCountry: (value: string) => void;
-  backends: BackendOption[];
-  selectedBackend: string;
-  setSelectedBackend: (value: string) => void;
 }) {
   const doneCount = slots.filter((slot) => slot.status === "done").length;
 
@@ -512,26 +522,6 @@ function WizardView({
             一次可生成 1–5 个授权槽位，每个槽位对应一个独立的 Claude 官方授权链接。备注与分组会应用到这一批账号。
           </p>
           <div className="advanced-fields">
-            {backends.length > 1 ? (
-              <>
-                <label className="field-label" htmlFor="target-backend">目标平台</label>
-                <select
-                  id="target-backend"
-                  className="text-input"
-                  value={selectedBackend}
-                  onChange={(event) => setSelectedBackend(event.target.value)}
-                  disabled={loading}
-                >
-                  {backends.map((backend) => (
-                    <option key={backend.kind} value={backend.kind}>
-                      {backend.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : backends.length === 1 ? (
-              <p className="step-lead">目标平台：{backends[0].label}</p>
-            ) : null}
             <label className="field-label" htmlFor="batch-count">生成槽位数（1–{MAX_BATCH}）</label>
             <input
               id="batch-count"
