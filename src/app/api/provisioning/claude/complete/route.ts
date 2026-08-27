@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { isBackendConfigured, isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveBackend, resolveOAuthBroker } from "@/lib/backends/registry";
-import { env } from "@/lib/env";
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
 import { acquireProvisioningFlow, deleteProvisioningFlow, releaseProvisioningFlow } from "@/lib/provisioning-state";
 import { mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
@@ -17,6 +17,8 @@ const completeSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   // Local label only; Sub2API has no country field, so it is folded into notes.
   country: z.string().trim().max(60).optional(),
+  // Target account pool. Defaults to the superadmin's default backend.
+  backend: z.enum(["sub2api", "newapi", "oneapi", "custom"]).optional(),
   groupIds: z.array(z.number().int().positive()).max(50).default([]),
 });
 
@@ -32,18 +34,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  if (!env.isProvisioningConfigured) {
+  if (!(await isSub2ApiConfigured())) {
     return NextResponse.json({ error: "provisioning_not_configured" }, { status: 503 });
-  }
-
-  if (!env.isBackendConfigured(env.BACKEND_KIND)) {
-    return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });
   }
 
   const parsed = completeSchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  if (parsed.data.backend && !(await isBackendConfigured(parsed.data.backend))) {
+    return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });
   }
 
   const normalizedCode = normalizeClaudeAuthCode(parsed.data.code);
@@ -71,7 +73,8 @@ export async function POST(request: Request) {
     }
 
     const accountName = parsed.data.name || buildDefaultName(tokenInfo, flow.flowId);
-    const account = await resolveBackend().createClaudeAccount({
+    const backend = await resolveBackend(parsed.data.backend);
+    const account = await backend.createClaudeAccount({
       name: accountName,
       notes: composeNotes(parsed.data.country, parsed.data.notes),
       tokenInfo,

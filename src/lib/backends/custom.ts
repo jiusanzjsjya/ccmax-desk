@@ -1,24 +1,24 @@
-import { env } from "@/lib/env";
+import type { CustomBackendConfig } from "@/lib/account-store";
 import { Sub2ApiError } from "@/lib/sub2api";
 import type { PoolAccountSummary, PoolBackend } from "./types";
 
 /**
  * Generic self-built gateway. It receives a Sub2API-shaped account payload at
- * CUSTOM_BACKEND_URL (POST) and, if CUSTOM_BACKEND_LIST_URL is set, reads the
- * pool from there (GET). The gateway owner defines the contract, so this makes
- * no version-specific assumptions beyond the JSON payload shape below.
+ * config.url (POST) and, if config.listUrl is set, reads the pool from there
+ * (GET). The gateway owner defines the contract, so this makes no
+ * version-specific assumptions beyond the JSON payload shape below.
  */
-export function customBackend(): PoolBackend {
+export function customBackend(config: CustomBackendConfig): PoolBackend {
   return {
     kind: "custom",
     label: "自建网关",
 
     async createClaudeAccount(input) {
-      if (!env.CUSTOM_BACKEND_URL) {
-        throw new Sub2ApiError("自建网关未配置 CUSTOM_BACKEND_URL");
+      if (!config.url) {
+        throw new Sub2ApiError("自建网关未配置地址（CUSTOM_BACKEND_URL）");
       }
 
-      const data = await request(env.CUSTOM_BACKEND_URL, {
+      const data = await request(config, config.url, {
         method: "POST",
         body: JSON.stringify({
           name: input.name,
@@ -47,11 +47,11 @@ export function customBackend(): PoolBackend {
     },
 
     async listClaudeAccounts() {
-      if (!env.CUSTOM_BACKEND_LIST_URL) {
+      if (!config.listUrl) {
         return { items: [], total: 0 };
       }
 
-      const data = await request(env.CUSTOM_BACKEND_LIST_URL, { method: "GET" });
+      const data = await request(config, config.listUrl, { method: "GET" });
       const rows = Array.isArray(data)
         ? data
         : Array.isArray((data as { items?: unknown })?.items)
@@ -76,7 +76,7 @@ export function customBackend(): PoolBackend {
   };
 }
 
-async function request(url: string, init: RequestInit) {
+async function request(config: CustomBackendConfig, url: string, init: RequestInit) {
   let response: Response;
 
   try {
@@ -85,13 +85,13 @@ async function request(url: string, init: RequestInit) {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        ...(env.CUSTOM_BACKEND_TOKEN ? { Authorization: `Bearer ${env.CUSTOM_BACKEND_TOKEN}` } : {}),
+        ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}),
         ...init.headers,
       },
       cache: "no-store",
     });
   } catch {
-    throw new Sub2ApiError("无法连接自建网关，请检查 CUSTOM_BACKEND_URL 和网络");
+    throw new Sub2ApiError("无法连接自建网关，请检查地址和网络");
   }
 
   const rawBody = await response.text();
@@ -105,7 +105,6 @@ async function request(url: string, init: RequestInit) {
     throw new Sub2ApiError(message, response.status);
   }
 
-  // Unwrap a `{ data: ... }` envelope if present.
   if (typeof payload === "object" && payload !== null && "data" in payload) {
     return (payload as { data: unknown }).data;
   }

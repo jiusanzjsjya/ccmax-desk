@@ -1,4 +1,4 @@
-import { getSub2ApiConfig } from "@/lib/env";
+import { getSub2ApiConfig } from "@/lib/backend-config";
 
 export type ClaudeTokenInfo = {
   access_token: string;
@@ -86,7 +86,7 @@ export function mapSub2ApiError(error: unknown, fallback: string) {
 }
 
 export async function generateClaudeAuthUrl(opts?: { proxyId?: number }) {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   // Per-request proxy_id (an existing Sub2API proxy) overrides the env default.
   const proxyId = opts?.proxyId ?? config.proxyId;
   const result = await request<GenerateAuthUrlResponse>(config, "/api/v1/admin/accounts/generate-auth-url", {
@@ -120,7 +120,7 @@ export type ProxyTestResult = {
 
 /** List Sub2API's managed proxies (never returns credentials). */
 export async function listProxies(): Promise<ProxySummary[]> {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   const result = await request<unknown>(config, "/api/v1/admin/proxies", { method: "GET" });
   const rows = Array.isArray(result)
     ? result
@@ -132,7 +132,7 @@ export async function listProxies(): Promise<ProxySummary[]> {
 
 /** Test an existing Sub2API proxy by id (POST /admin/proxies/:id/test). */
 export async function testProxy(id: number): Promise<ProxyTestResult> {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   const result = await request<Record<string, unknown>>(config, `/api/v1/admin/proxies/${id}/test`, {
     method: "POST",
   });
@@ -173,7 +173,7 @@ function readNumber(obj: unknown, key: string): number | null {
 }
 
 export async function exchangeClaudeCode(flow: { sessionId: string; code: string }) {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   return request<ClaudeTokenInfo>(config, "/api/v1/admin/accounts/exchange-code", {
     method: "POST",
     body: JSON.stringify({
@@ -190,7 +190,7 @@ export async function createClaudeAccount(input: {
   tokenInfo: ClaudeTokenInfo;
   groupIds?: number[];
 }) {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   const { tokenInfo } = input;
   const response = await request<RawSub2ApiAccount>(config, "/api/v1/admin/accounts", {
     method: "POST",
@@ -214,7 +214,7 @@ export async function createClaudeAccount(input: {
 }
 
 export async function listClaudeAccounts() {
-  const config = getSub2ApiConfig();
+  const config = await getSub2ApiConfig();
   const query = new URLSearchParams({
     page: "1",
     page_size: "50",
@@ -241,7 +241,7 @@ type GenerateAuthUrlResponse = {
 };
 
 async function request<T>(
-  config: ReturnType<typeof getSub2ApiConfig>,
+  config: Awaited<ReturnType<typeof getSub2ApiConfig>>,
   path: string,
   init: RequestInit,
 ) {

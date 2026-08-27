@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveOAuthBroker } from "@/lib/backends/registry";
-import { env } from "@/lib/env";
 import {
   countOwnerFlows,
   createProvisioningFlow,
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  if (!env.isProvisioningConfigured) {
+  if (!(await isSub2ApiConfigured())) {
     return NextResponse.json({ error: "provisioning_not_configured" }, { status: 503 });
   }
 

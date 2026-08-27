@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { env } from "@/lib/env";
 import type { Role } from "@/lib/roles";
+import { BACKEND_KINDS, type BackendKind } from "@/lib/backends/kinds";
 
 export type LocalAccount = {
   id: string;
@@ -39,10 +40,31 @@ export type AuditEvent = {
   createdAt: string;
 };
 
+export type Sub2ApiBackendConfig = { baseUrl: string; adminToken: string; proxyId: number | null };
+export type RelayBackendConfig = {
+  baseUrl: string;
+  adminToken: string;
+  userId: string;
+  channelType: number;
+  models: string;
+};
+export type CustomBackendConfig = { url: string; token: string; listUrl: string };
+
+/** Superadmin-editable multi-platform backend configuration (persisted). */
+export type BackendConfigStore = {
+  defaultBackend: BackendKind;
+  enabled: BackendKind[];
+  sub2api: Sub2ApiBackendConfig;
+  newapi: RelayBackendConfig;
+  oneapi: Omit<RelayBackendConfig, "userId">;
+  custom: CustomBackendConfig;
+};
+
 export type LocalAccountStore = {
   accounts: LocalAccount[];
   settings: SystemSettings;
   audit: AuditEvent[];
+  backends: BackendConfigStore;
 };
 
 const defaultSettings: SystemSettings = {
@@ -52,6 +74,46 @@ const defaultSettings: SystemSettings = {
   allowAdminAccountPoolView: true,
   allowUserAccountPoolView: false,
 };
+
+/** Seed backend config from env on first run; the store is authoritative after. */
+function defaultBackendConfig(): BackendConfigStore {
+  const config: Omit<BackendConfigStore, "enabled"> = {
+    defaultBackend: env.BACKEND_KIND,
+    sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null },
+    newapi: {
+      baseUrl: env.NEWAPI_BASE_URL,
+      adminToken: env.NEWAPI_ADMIN_TOKEN,
+      userId: env.NEWAPI_USER_ID,
+      channelType: env.NEWAPI_CHANNEL_TYPE,
+      models: env.NEWAPI_MODELS,
+    },
+    oneapi: {
+      baseUrl: env.ONEAPI_BASE_URL,
+      adminToken: env.ONEAPI_ADMIN_TOKEN,
+      channelType: env.ONEAPI_CHANNEL_TYPE,
+      models: env.ONEAPI_MODELS,
+    },
+    custom: { url: env.CUSTOM_BACKEND_URL, token: env.CUSTOM_BACKEND_TOKEN, listUrl: env.CUSTOM_BACKEND_LIST_URL },
+  };
+  const enabled = BACKEND_KINDS.filter((kind) => isBackendConfigInPlace(kind, config));
+  return { ...config, enabled: enabled.length ? enabled : ["sub2api"] };
+}
+
+/** True when a backend has the minimum fields to be usable. */
+export function isBackendConfigInPlace(kind: BackendKind, config: Omit<BackendConfigStore, "enabled" | "defaultBackend">) {
+  switch (kind) {
+    case "sub2api":
+      return Boolean(config.sub2api.baseUrl && config.sub2api.adminToken);
+    case "newapi":
+      return Boolean(config.newapi.baseUrl && config.newapi.adminToken);
+    case "oneapi":
+      return Boolean(config.oneapi.baseUrl && config.oneapi.adminToken);
+    case "custom":
+      return Boolean(config.custom.url);
+    default:
+      return false;
+  }
+}
 
 export async function getAccountStore(): Promise<LocalAccountStore> {
   try {
@@ -178,6 +240,33 @@ export async function updateSystemSettings(patch: Partial<SystemSettings>) {
   });
 }
 
+export type BackendConfigPatch = {
+  defaultBackend?: BackendKind;
+  enabled?: BackendKind[];
+  sub2api?: Partial<Sub2ApiBackendConfig>;
+  newapi?: Partial<RelayBackendConfig>;
+  oneapi?: Partial<Omit<RelayBackendConfig, "userId">>;
+  custom?: Partial<CustomBackendConfig>;
+};
+
+export async function getBackendConfigStore() {
+  const store = await getAccountStore();
+  return store.backends;
+}
+
+export async function updateBackendSettings(patch: BackendConfigPatch) {
+  return mutateStore((store) => {
+    const backends = store.backends;
+    if (patch.defaultBackend) backends.defaultBackend = patch.defaultBackend;
+    if (patch.enabled) backends.enabled = patch.enabled.filter((kind) => BACKEND_KINDS.includes(kind));
+    if (patch.sub2api) backends.sub2api = { ...backends.sub2api, ...patch.sub2api };
+    if (patch.newapi) backends.newapi = { ...backends.newapi, ...patch.newapi };
+    if (patch.oneapi) backends.oneapi = { ...backends.oneapi, ...patch.oneapi };
+    if (patch.custom) backends.custom = { ...backends.custom, ...patch.custom };
+    return backends;
+  });
+}
+
 export async function addAuditEvent(event: Omit<AuditEvent, "id" | "createdAt">) {
   return mutateStore((store) => {
     store.audit.unshift({
@@ -226,7 +315,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [] };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig() };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -234,6 +323,24 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     accounts: Array.isArray(value.accounts) ? value.accounts : [],
     settings: { ...defaultSettings, ...(value.settings || {}) },
     audit: Array.isArray(value.audit) ? value.audit.slice(0, 300) : [],
+    backends: normalizeBackends(value.backends),
+  };
+}
+
+function normalizeBackends(value?: Partial<BackendConfigStore>): BackendConfigStore {
+  const defaults = defaultBackendConfig();
+  if (!value) return defaults;
+
+  return {
+    defaultBackend: value.defaultBackend ?? defaults.defaultBackend,
+    enabled:
+      Array.isArray(value.enabled) && value.enabled.length
+        ? value.enabled.filter((kind) => BACKEND_KINDS.includes(kind))
+        : defaults.enabled,
+    sub2api: { ...defaults.sub2api, ...(value.sub2api || {}) },
+    newapi: { ...defaults.newapi, ...(value.newapi || {}) },
+    oneapi: { ...defaults.oneapi, ...(value.oneapi || {}) },
+    custom: { ...defaults.custom, ...(value.custom || {}) },
   };
 }
 

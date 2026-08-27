@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
-import { env } from "@/lib/env";
+import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { mapSub2ApiError, Sub2ApiError, testProxy } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  if (!env.isSub2ApiConfigured) {
+  if (!(await isSub2ApiConfigured())) {
     return NextResponse.json({ error: "provisioning_not_configured" }, { status: 503 });
   }
 

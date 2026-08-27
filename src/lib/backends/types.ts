@@ -1,6 +1,8 @@
 import type { ClaudeTokenInfo, Sub2ApiAccountSummary } from "@/lib/sub2api";
+import type { BackendKind } from "./kinds";
 
 export type { ClaudeTokenInfo };
+export type { BackendKind };
 
 /**
  * Neutral account summary returned to the browser. Shaped like Sub2API's
@@ -15,8 +17,6 @@ export type CreateClaudeAccountInput = {
   tokenInfo: ClaudeTokenInfo;
   groupIds?: number[];
 };
-
-export type BackendKind = "sub2api" | "newapi" | "oneapi" | "custom";
 
 /**
  * A target account pool / gateway that stores a finished Claude OAuth account.

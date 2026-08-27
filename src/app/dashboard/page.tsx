@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 
 import AccountManagementPanel from "@/components/account-management-panel";
+import BackendConfigPanel from "@/components/backend-config-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
 import { accountPoolAccess, getAccessContext } from "@/lib/access";
+import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { env } from "@/lib/env";
 import { roleLabel } from "@/lib/roles";
 
@@ -15,6 +17,8 @@ export default async function DashboardPage() {
   if (!context) {
     redirect("/");
   }
+
+  const sub2Ready = await isSub2ApiConfigured();
 
   return (
     <main className="shell dashboard-shell">
@@ -60,11 +64,12 @@ export default async function DashboardPage() {
               按向导完成一次授权。外部授权页会在新标签打开，完成后回到这里提交 code#state。
             </p>
             <ProvisioningPanel
-              adminConfigured={env.isAdminConfigured}
-              sub2ApiConfigured={env.isSub2ApiConfigured}
+              adminConfigured={env.isSuperadminConfigured}
+              sub2ApiConfigured={sub2Ready}
               canViewAccountPool={accountPoolAccess(context)}
             />
             {context.role !== "user" ? <AccountManagementPanel role={context.role} /> : null}
+            {context.role === "superadmin" ? <BackendConfigPanel /> : null}
           </div>
         </div>
       </section>
