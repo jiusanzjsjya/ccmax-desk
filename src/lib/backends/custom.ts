@@ -3,10 +3,35 @@ import { Sub2ApiError } from "@/lib/sub2api";
 import type { PoolAccountSummary, PoolBackend } from "./types";
 
 /**
- * Generic self-built gateway. It receives a Sub2API-shaped account payload at
- * config.url (POST) and, if config.listUrl is set, reads the pool from there
- * (GET). The gateway owner defines the contract, so this makes no
- * version-specific assumptions beyond the JSON payload shape below.
+ * Generic self-built gateway. Unlike new-api/one-api (whose Anthropic channel
+ * only accepts a static API key), the custom gateway receives the FULL Claude
+ * OAuth credential, so it is the one relay that can faithfully store an
+ * OAuth-based Claude Code Max account. The gateway owner defines the contract;
+ * this adapter makes no version-specific assumptions beyond the shapes below.
+ *
+ * CONTRACT the gateway must implement:
+ *   POST {config.url}
+ *     Headers: Content-Type: application/json, Accept: application/json,
+ *              Authorization: Bearer {config.token}   (only if token is set)
+ *     Body: {
+ *       name: string,                       // display name
+ *       notes?: string,                     // optional batch/country note
+ *       platform: "anthropic",
+ *       type: "oauth",
+ *       credentials: {                      // the Claude OAuth token (ClaudeTokenInfo)
+ *         access_token, refresh_token?, expires_in?, email_address?,
+ *         account_uuid?, org_uuid?, ...
+ *       },
+ *       extra: { org_uuid?, account_uuid?, email_address? },
+ *       group_ids: number[]
+ *     }
+ *     Response: the created account object (optionally wrapped in { data: {...} }),
+ *               ideally { id, status }.
+ *
+ *   GET {config.listUrl}   (optional; omit to hide the pool)
+ *     Response: an array of accounts, or { items: [...] } / { data: [...] },
+ *               each row optionally { id, name, email|email_address, platform,
+ *               type, status, schedulable, error_message, created_at }.
  */
 export function customBackend(config: CustomGateway): PoolBackend {
   return {

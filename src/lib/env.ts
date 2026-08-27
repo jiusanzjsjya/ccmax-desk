@@ -34,11 +34,13 @@ const envSchema = z.object({
   NEWAPI_USER_ID: z.string().default(""),
   NEWAPI_CHANNEL_TYPE: z.coerce.number().int().default(14),
   NEWAPI_MODELS: z.string().default("claude-3-5-sonnet-latest"),
+  NEWAPI_ANTHROPIC_API_KEY: z.string().default(""),
 
   ONEAPI_BASE_URL: z.string().default(""),
   ONEAPI_ADMIN_TOKEN: z.string().default(""),
   ONEAPI_CHANNEL_TYPE: z.coerce.number().int().default(14),
   ONEAPI_MODELS: z.string().default("claude-3-5-sonnet-latest"),
+  ONEAPI_ANTHROPIC_API_KEY: z.string().default(""),
 
   CUSTOM_BACKEND_URL: z.string().default(""),
   CUSTOM_BACKEND_TOKEN: z.string().default(""),

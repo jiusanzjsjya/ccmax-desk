@@ -2,27 +2,37 @@ import { Sub2ApiError } from "@/lib/sub2api";
 import type { BackendKind, PoolAccountSummary, PoolBackend } from "./types";
 
 /**
- * Shared client for one-api and its fork new-api. Both expose an OpenAI-style
- * channel-management API (`/api/channel`). A Claude account is stored as a
- * channel whose credential holds the OAuth token.
+ * Shared client for one-api and its fork new-api. Both expose an admin
+ * channel-management API (`POST /api/channel/`, `GET /api/channel/`).
  *
- * VERSION-SENSITIVE: the numeric channel `type`, the model list, and — most
- * importantly — how a Claude *OAuth* token is encoded into the channel `key`
- * differ across one-api / new-api versions. `channelType` and `models` are
- * therefore env-driven, and the key encoding below is the documented default
- * that must be verified against the target deployment before production use.
+ * VERIFIED against source (one-api v0.6.9 `36c8f4f`, new-api v1.0.0-rc.26
+ * `8f6961c`): the Anthropic channel `type` is 14 and its `key` is a STATIC
+ * Anthropic API key (`sk-ant-...`), sent upstream as the `x-api-key` header.
+ * Neither platform accepts a Claude OAuth token (access_token/refresh_token/
+ * expiry) for the Anthropic type — new-api's OAuth storage+refresh exists only
+ * for Codex/type 57 (ChatGPT), with no Claude analog. We therefore store the
+ * operator's configured static `apiKey`, NOT the Claude OAuth token, and require
+ * it up front.
+ *
+ * Request shape differs: new-api wraps the channel as `{mode:"single",
+ * channel:{…}}`; one-api posts the channel flat. Both auth with
+ * `Authorization: Bearer <adminToken>` (the `New-Api-User` header is optional/
+ * legacy). `channelType`/`models` stay configurable across deployments.
  */
 export type RelayConfig = {
   kind: BackendKind;
   label: string;
   baseUrl: string;
+  /** Admin API token (Authorization: Bearer) used to create/list channels. */
   adminToken: string;
-  /** new-api requires a numeric user id sent via the `New-Api-User` header. */
+  /** Optional/legacy numeric user id sent via the `New-Api-User` header. */
   userId?: string;
-  /** Provider code for Claude/Anthropic (one-api default is 14). */
+  /** Provider code for Claude/Anthropic (14 on both one-api and new-api). */
   channelType: number;
   /** Comma-separated model list advertised by the channel. */
   models: string;
+  /** Static Anthropic API key (sk-ant-...) written to the channel `key`. */
+  apiKey: string;
 };
 
 type RelayEnvelope = { success?: boolean; message?: string; data?: unknown };
@@ -33,27 +43,37 @@ export function createRelayBackend(config: RelayConfig): PoolBackend {
     label: config.label,
 
     async createClaudeAccount(input) {
-      const data = await request(config, "/api/channel/", {
-        method: "POST",
-        body: JSON.stringify({
-          name: input.name,
-          type: config.channelType,
-          // NOTE: verify the Claude-OAuth key encoding for your one-api/new-api version.
-          key: input.tokenInfo.access_token,
-          base_url: "",
-          models: config.models,
-          group: "default",
-          groups: ["default"],
-        }),
-      });
+      if (!config.apiKey) {
+        throw new Sub2ApiError(
+          `${config.label} 的 Anthropic 渠道只接受静态 Anthropic API Key（sk-ant-...），` +
+            `请在超管后台该平台配置里填写 API Key；Claude OAuth 账号无法直接写入该渠道。`,
+        );
+      }
+
+      // Anthropic channel (type 14): `key` is the static Anthropic API key, sent
+      // upstream as x-api-key. The Claude OAuth token cannot be stored here.
+      const channelBody = {
+        name: input.name,
+        type: config.channelType,
+        key: config.apiKey,
+        base_url: "",
+        models: config.models,
+        group: "default",
+      };
+      // new-api wraps the channel in {mode, channel}; one-api posts it flat.
+      const body = config.kind === "newapi" ? { mode: "single", channel: channelBody } : channelBody;
+
+      const data = await request(config, "/api/channel/", { method: "POST", body: JSON.stringify(body) });
 
       const channel = (data ?? {}) as { id?: number | string };
       return {
         id: channel.id ?? null,
         name: input.name,
+        // For reference only: the created channel is keyed by a static API key,
+        // not by this Claude account's OAuth credential.
         email: input.tokenInfo.email_address ?? null,
         platform: "anthropic",
-        type: "oauth",
+        type: "apikey",
         status: "active",
         schedulable: null,
         errorMessage: null,
@@ -63,7 +83,11 @@ export function createRelayBackend(config: RelayConfig): PoolBackend {
     },
 
     async listClaudeAccounts() {
-      const query = new URLSearchParams({ p: "1", page_size: "50" });
+      // one-api: `p` is 0-based, no page_size. new-api: `p` 1-based + page_size.
+      const query =
+        config.kind === "newapi"
+          ? new URLSearchParams({ p: "1", page_size: "100" })
+          : new URLSearchParams({ p: "0" });
       const data = await request(config, `/api/channel/?${query}`, { method: "GET" });
       const rows = extractRows(data);
 

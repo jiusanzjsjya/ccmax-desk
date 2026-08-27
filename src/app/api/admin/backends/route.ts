@@ -30,6 +30,7 @@ const patchSchema = z.object({
       userId: z.string().trim().max(60).optional(),
       channelType: z.coerce.number().int().optional(),
       models: z.string().trim().max(2000).optional(),
+      apiKey: z.string().max(4000).optional(),
     })
     .optional(),
   oneapi: z
@@ -38,6 +39,7 @@ const patchSchema = z.object({
       adminToken: z.string().max(4000).optional(),
       channelType: z.coerce.number().int().optional(),
       models: z.string().trim().max(2000).optional(),
+      apiKey: z.string().max(4000).optional(),
     })
     .optional(),
   customs: z
@@ -77,12 +79,14 @@ export async function GET() {
       userId: backends.newapi.userId,
       channelType: backends.newapi.channelType,
       models: backends.newapi.models,
+      hasApiKey: Boolean(backends.newapi.apiKey),
     },
     oneapi: {
       baseUrl: backends.oneapi.baseUrl,
       hasAdminToken: Boolean(backends.oneapi.adminToken),
       channelType: backends.oneapi.channelType,
       models: backends.oneapi.models,
+      hasApiKey: Boolean(backends.oneapi.apiKey),
     },
     customs: backends.customs.map((gateway) => ({
       id: gateway.id,
@@ -139,10 +143,12 @@ function stripBlankSecrets(input: z.infer<typeof patchSchema>): BackendConfigPat
   if (input.newapi) {
     patch.newapi = { ...input.newapi };
     if (!input.newapi.adminToken) delete patch.newapi.adminToken;
+    if (!input.newapi.apiKey) delete patch.newapi.apiKey;
   }
   if (input.oneapi) {
     patch.oneapi = { ...input.oneapi };
     if (!input.oneapi.adminToken) delete patch.oneapi.adminToken;
+    if (!input.oneapi.apiKey) delete patch.oneapi.apiKey;
   }
   // Per-gateway blank tokens are treated as "unchanged" by the store merge.
   if (input.customs) patch.customs = input.customs;

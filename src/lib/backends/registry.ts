@@ -32,6 +32,7 @@ export async function resolveBackend(ref?: BackendRef): Promise<PoolBackend> {
         userId: cfg.userId || undefined,
         channelType: cfg.channelType,
         models: cfg.models,
+        apiKey: cfg.apiKey,
       });
     }
     case "oneapi": {
@@ -43,6 +44,7 @@ export async function resolveBackend(ref?: BackendRef): Promise<PoolBackend> {
         adminToken: cfg.adminToken,
         channelType: cfg.channelType,
         models: cfg.models,
+        apiKey: cfg.apiKey,
       });
     }
     case "custom": {

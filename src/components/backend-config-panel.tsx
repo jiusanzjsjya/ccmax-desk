@@ -28,14 +28,21 @@ type BackendConfig = {
   enabled: string[];
   configured: Record<SingletonKind, boolean>;
   sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null };
-  newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string };
-  oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string };
+  newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string; hasApiKey: boolean };
+  oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string; hasApiKey: boolean };
   customs: CustomGatewayView[];
 };
 
-type TokenInputs = { sub2api: string; newapi: string; oneapi: string; customs: Record<string, string> };
+type TokenInputs = {
+  sub2api: string;
+  newapi: string;
+  oneapi: string;
+  newapiApiKey: string;
+  oneapiApiKey: string;
+  customs: Record<string, string>;
+};
 
-const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", customs: {} };
+const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {} };
 
 export default function BackendConfigPanel() {
   const router = useRouter();
@@ -153,12 +160,14 @@ export default function BackendConfigPanel() {
           channelType: config.newapi.channelType,
           models: config.newapi.models,
           ...(tokens.newapi ? { adminToken: tokens.newapi } : {}),
+          ...(tokens.newapiApiKey ? { apiKey: tokens.newapiApiKey } : {}),
         },
         oneapi: {
           baseUrl: config.oneapi.baseUrl,
           channelType: config.oneapi.channelType,
           models: config.oneapi.models,
           ...(tokens.oneapi ? { adminToken: tokens.oneapi } : {}),
+          ...(tokens.oneapiApiKey ? { apiKey: tokens.oneapiApiKey } : {}),
         },
         customs: config.customs.map((gateway) => ({
           id: gateway.id,
@@ -261,10 +270,13 @@ export default function BackendConfigPanel() {
               <Field label="地址 Base URL">
                 <input className="text-input" value={config.newapi.baseUrl} onChange={(e) => patchPlatform("newapi", { baseUrl: e.target.value })} placeholder="https://newapi.example.com" disabled={saving} />
               </Field>
-              <Field label="管理令牌">
+              <Field label="管理令牌（创建渠道用）">
                 <TokenInput has={config.newapi.hasAdminToken} value={tokens.newapi} onChange={(v) => setTokens((t) => ({ ...t, newapi: v }))} disabled={saving} />
               </Field>
-              <Field label="New-Api-User（用户 ID）">
+              <Field label="Anthropic API Key（sk-ant-，写入渠道）">
+                <TokenInput has={config.newapi.hasApiKey} value={tokens.newapiApiKey} onChange={(v) => setTokens((t) => ({ ...t, newapiApiKey: v }))} disabled={saving} />
+              </Field>
+              <Field label="New-Api-User（用户 ID，可选）">
                 <input className="text-input" value={config.newapi.userId} onChange={(e) => patchPlatform("newapi", { userId: e.target.value })} placeholder="例如 1" disabled={saving} />
               </Field>
               <Field label="渠道类型 / 模型">
@@ -279,8 +291,11 @@ export default function BackendConfigPanel() {
               <Field label="地址 Base URL">
                 <input className="text-input" value={config.oneapi.baseUrl} onChange={(e) => patchPlatform("oneapi", { baseUrl: e.target.value })} placeholder="https://oneapi.example.com" disabled={saving} />
               </Field>
-              <Field label="管理令牌">
+              <Field label="管理令牌（创建渠道用）">
                 <TokenInput has={config.oneapi.hasAdminToken} value={tokens.oneapi} onChange={(v) => setTokens((t) => ({ ...t, oneapi: v }))} disabled={saving} />
+              </Field>
+              <Field label="Anthropic API Key（sk-ant-，写入渠道）">
+                <TokenInput has={config.oneapi.hasApiKey} value={tokens.oneapiApiKey} onChange={(v) => setTokens((t) => ({ ...t, oneapiApiKey: v }))} disabled={saving} />
               </Field>
               <Field label="渠道类型 / 模型">
                 <div className="flow-actions">

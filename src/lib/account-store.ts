@@ -43,10 +43,17 @@ export type AuditEvent = {
 export type Sub2ApiBackendConfig = { baseUrl: string; adminToken: string; proxyId: number | null };
 export type RelayBackendConfig = {
   baseUrl: string;
+  /** Authenticates the new-api/one-api admin API (Authorization: Bearer) to create channels. */
   adminToken: string;
   userId: string;
   channelType: number;
   models: string;
+  /**
+   * Static Anthropic API key (sk-ant-...) stored in the created channel's `key`.
+   * new-api/one-api Anthropic channels only accept a static key — a Claude OAuth
+   * token cannot be used, so this is required to create a usable channel.
+   */
+  apiKey: string;
 };
 /** Connection fields of one self-built gateway (legacy single-gateway shape). */
 export type CustomBackendConfig = { url: string; token: string; listUrl: string };
@@ -106,12 +113,14 @@ function defaultBackendConfig(): BackendConfigStore {
       userId: env.NEWAPI_USER_ID,
       channelType: env.NEWAPI_CHANNEL_TYPE,
       models: env.NEWAPI_MODELS,
+      apiKey: env.NEWAPI_ANTHROPIC_API_KEY,
     },
     oneapi: {
       baseUrl: env.ONEAPI_BASE_URL,
       adminToken: env.ONEAPI_ADMIN_TOKEN,
       channelType: env.ONEAPI_CHANNEL_TYPE,
       models: env.ONEAPI_MODELS,
+      apiKey: env.ONEAPI_ANTHROPIC_API_KEY,
     },
     customs,
   };
@@ -130,9 +139,9 @@ export function isBackendRefConfigured(ref: BackendRef, config: BackendConfigFie
     case "sub2api":
       return Boolean(config.sub2api.baseUrl && config.sub2api.adminToken);
     case "newapi":
-      return Boolean(config.newapi.baseUrl && config.newapi.adminToken);
+      return Boolean(config.newapi.baseUrl && config.newapi.adminToken && config.newapi.apiKey);
     case "oneapi":
-      return Boolean(config.oneapi.baseUrl && config.oneapi.adminToken);
+      return Boolean(config.oneapi.baseUrl && config.oneapi.adminToken && config.oneapi.apiKey);
     case "custom": {
       const id = customIdFromRef(ref);
       const gateway = id ? config.customs.find((item) => item.id === id) : undefined;
