@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { recordPoolOwnership } from "@/lib/account-store";
 import { isBackendConfigured, isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveBackend, resolveOAuthBroker } from "@/lib/backends/registry";
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
@@ -81,6 +82,20 @@ export async function POST(request: Request) {
       tokenInfo,
       groupIds: parsed.data.groupIds,
     });
+
+    // Attribute the account to the onboarding user for per-owner pool scoping.
+    // Best-effort: the account already exists in the backend, so a failed
+    // ownership write must not fail the onboard.
+    if (account?.id != null) {
+      const platformRef = parsed.data.backend ?? context.store.backends.defaultBackend;
+      await recordPoolOwnership({
+        platform: platformRef,
+        accountId: String(account.id),
+        ownerId: context.session.userId,
+        ownerUsername: context.session.username,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => console.error("[provisioning.complete] ownership write failed", error));
+    }
 
     deleteProvisioningFlow(flow.flowId);
     return NextResponse.json({ ok: true, account });

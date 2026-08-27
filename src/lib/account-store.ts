@@ -27,6 +27,21 @@ export type SystemSettings = {
   allowUserProvisioning: boolean;
   allowAdminAccountPoolView: boolean;
   allowUserAccountPoolView: boolean;
+  /** When true, a `user` only sees accounts they personally onboarded. */
+  scopeAccountPoolByOwner: boolean;
+};
+
+/**
+ * Attribution record: which CCMax user onboarded a given backend account.
+ * Keyed by (platform ref, stringified account id). Sub2API accounts carry no
+ * CCMax identity, so this local map is the source of truth for per-user scoping.
+ */
+export type PoolOwnership = {
+  platform: BackendRef;
+  accountId: string;
+  ownerId: string;
+  ownerUsername: string;
+  createdAt: string;
 };
 
 export type AuditEvent = {
@@ -75,6 +90,7 @@ export type LocalAccountStore = {
   settings: SystemSettings;
   audit: AuditEvent[];
   backends: BackendConfigStore;
+  poolOwnership: PoolOwnership[];
 };
 
 const defaultSettings: SystemSettings = {
@@ -83,6 +99,7 @@ const defaultSettings: SystemSettings = {
   allowUserProvisioning: true,
   allowAdminAccountPoolView: true,
   allowUserAccountPoolView: false,
+  scopeAccountPoolByOwner: true,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -292,6 +309,30 @@ export async function updateSystemSettings(patch: Partial<SystemSettings>) {
   });
 }
 
+/**
+ * Record who onboarded a backend account. Deduped on (platform, accountId) and
+ * keep-first: a later onboard of the same id can never silently reassign owner.
+ */
+export async function recordPoolOwnership(entry: PoolOwnership) {
+  return mutateStore((store) => {
+    const exists = store.poolOwnership.some(
+      (item) => item.platform === entry.platform && item.accountId === entry.accountId,
+    );
+    if (!exists) store.poolOwnership.push(entry);
+    return entry;
+  });
+}
+
+/** Stringified account ids on a platform that belong to a given owner. */
+export async function listOwnedAccountIds(platform: BackendRef, ownerId: string): Promise<Set<string>> {
+  const store = await getAccountStore();
+  const owned = new Set<string>();
+  for (const item of store.poolOwnership) {
+    if (item.platform === platform && item.ownerId === ownerId) owned.add(item.accountId);
+  }
+  return owned;
+}
+
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
 export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
 
@@ -393,7 +434,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig() };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [] };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -402,6 +443,7 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     settings: { ...defaultSettings, ...(value.settings || {}) },
     audit: Array.isArray(value.audit) ? value.audit.slice(0, 300) : [],
     backends: normalizeBackends(value.backends),
+    poolOwnership: Array.isArray(value.poolOwnership) ? value.poolOwnership : [],
   };
 }
 

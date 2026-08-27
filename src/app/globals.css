@@ -1836,6 +1836,20 @@ select.text-input,
   }
 }
 
+.pool-scope-note {
+  margin: 4px 0 0;
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+}
+
+.pool-platform {
+  flex: 0 0 auto;
+  min-width: 150px;
+  max-width: 230px;
+}
+
 /* ======================= Pool ops / alerts ======================= */
 
 .ops {

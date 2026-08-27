@@ -26,6 +26,7 @@ type Settings = {
   allowUserProvisioning: boolean;
   allowAdminAccountPoolView: boolean;
   allowUserAccountPoolView: boolean;
+  scopeAccountPoolByOwner: boolean;
 };
 
 type AuditEvent = {
@@ -44,6 +45,7 @@ const emptySettings: Settings = {
   allowUserProvisioning: true,
   allowAdminAccountPoolView: true,
   allowUserAccountPoolView: false,
+  scopeAccountPoolByOwner: true,
 };
 
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
@@ -324,6 +326,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label="允许普通用户上号" checked={settings.allowUserProvisioning} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserProvisioning", value)} />
           <SettingToggle label="管理员查看账号池" checked={settings.allowAdminAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminAccountPoolView", value)} />
           <SettingToggle label="普通用户查看账号池" checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
+          <SettingToggle label="普通用户仅见本人上号的账号" checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
         </div>
       </div>
 

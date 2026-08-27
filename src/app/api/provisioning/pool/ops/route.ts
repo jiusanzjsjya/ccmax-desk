@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { accountPoolAccess, getAccessContext } from "@/lib/access";
+import { accountPoolAccess, getAccessContext, poolScope } from "@/lib/access";
+import { listOwnedAccountIds } from "@/lib/account-store";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
+import { refKind } from "@/lib/backends/kinds";
+import { collectOwnedAccounts, ownedStats } from "@/lib/pool-scope";
 import { mapSub2ApiError, scanPoolAlerts, Sub2ApiError } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
@@ -14,19 +17,47 @@ const POOL_CAPACITY = 1000;
  * pool-wide health scan (bounded) that surfaces problem accounts. Sub2API-only
  * — reuses the same verified endpoints as the account list, no new API surface.
  * Rule evaluation lives on the client; this route only returns raw signals.
+ *
+ * A regular `user` is scoped to their own accounts: the "pool" here is just the
+ * caller's owned set, and all aggregates are computed from it (never the global
+ * dashboard). Non-Sub2API platforms return a `pending` placeholder.
  */
 export async function GET(request: Request) {
   const context = await getAccessContext();
   if (!context) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!accountPoolAccess(context)) return NextResponse.json({ error: "account_pool_forbidden" }, { status: 403 });
-  if (!(await isSub2ApiConfigured())) return NextResponse.json({ error: "sub2api_not_configured" }, { status: 503 });
 
   const params = new URL(request.url).searchParams;
+  const platform = (params.get("platform") || "sub2api").slice(0, 80);
+  if (refKind(platform) !== "sub2api") {
+    return NextResponse.json({ pending: true, platform });
+  }
+
+  if (!(await isSub2ApiConfigured())) return NextResponse.json({ error: "sub2api_not_configured" }, { status: 503 });
+
   const scanMax = clampInt(params.get("scan_max"), 500, 100, POOL_CAPACITY);
+  const scope = poolScope(context);
 
   try {
+    if (scope.scoped) {
+      const owned = await listOwnedAccountIds(platform, scope.ownerId!);
+      const accounts = owned.size ? await collectOwnedAccounts(owned) : [];
+      const concurrencySum = accounts.reduce((sum, account) => sum + (account.currentConcurrency ?? 0), 0);
+      return NextResponse.json({
+        stats: ownedStats(accounts),
+        // The client applies alert rules; sending the whole owned set is cheap
+        // (a user owns few accounts) and lets every rule evaluate.
+        notable: accounts,
+        scanned: accounts.length,
+        truncated: false,
+        concurrencySum,
+        capacity: POOL_CAPACITY,
+        scoped: true,
+      });
+    }
+
     const scan = await scanPoolAlerts({ scanMax });
-    return NextResponse.json({ ...scan, capacity: POOL_CAPACITY });
+    return NextResponse.json({ ...scan, capacity: POOL_CAPACITY, scoped: false });
   } catch (error) {
     const failure = mapSub2ApiError(error, "读取账号池运维数据失败");
     if (!(error instanceof Sub2ApiError)) {

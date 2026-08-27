@@ -50,6 +50,17 @@ export function accountPoolAccess(context: AccessContext) {
   return context.store.settings.allowUserAccountPoolView;
 }
 
+/**
+ * Per-owner scoping for the account pool. Only regular users are scoped (and
+ * only when the superadmin toggle is on); admin/superadmin always see the full
+ * pool. When scoped, callers must restrict results to `ownerId`'s own accounts.
+ */
+export function poolScope(context: AccessContext): { scoped: boolean; ownerId: string | null } {
+  if (context.role !== "user") return { scoped: false, ownerId: null };
+  if (!context.store.settings.scopeAccountPoolByOwner) return { scoped: false, ownerId: null };
+  return { scoped: true, ownerId: context.session.userId };
+}
+
 export function roleCanCreateUsers(role: Role, settings: AccessContext["store"]["settings"]) {
   return role === "superadmin" || (role === "admin" && settings.allowAdminCreateUsers);
 }

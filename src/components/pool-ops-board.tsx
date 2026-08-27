@@ -46,6 +46,8 @@ type OpsResponse = {
   truncated?: boolean;
   concurrencySum?: number;
   capacity?: number;
+  scoped?: boolean;
+  pending?: boolean;
   error?: string;
 };
 
@@ -93,7 +95,7 @@ type Alert = {
   tags: { key: RuleKey; label: string; severity: Severity }[];
 };
 
-export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured: boolean }) {
+export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform: string; sub2ApiConfigured: boolean }) {
   const router = useRouter();
   const [stats, setStats] = useState<PoolStats | null>(null);
   const [notable, setNotable] = useState<PoolAccount[]>([]);
@@ -101,6 +103,8 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
   const [truncated, setTruncated] = useState(false);
   const [concurrencySum, setConcurrencySum] = useState(0);
   const [capacity, setCapacity] = useState(1000);
+  const [scoped, setScoped] = useState(false);
+  const [pending, setPending] = useState(false);
 
   const [rules, setRules] = useState<RuleConfig>(DEFAULT_RULES);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -143,7 +147,8 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/provisioning/pool/ops?scan_max=1000", { cache: "no-store" });
+      const qs = new URLSearchParams({ platform, scan_max: "1000" });
+      const response = await fetch(`/api/provisioning/pool/ops?${qs}`, { cache: "no-store" });
       if (response.status === 401) return redirectToLogin();
       const payload = (await response.json().catch(() => ({}))) as OpsResponse;
       if (!response.ok) {
@@ -152,6 +157,14 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
         setError(readOpsError(response.status, payload.error));
         return;
       }
+      if (payload.pending) {
+        setPending(true);
+        setNotable([]);
+        setStats(null);
+        return;
+      }
+      setPending(false);
+      setScoped(Boolean(payload.scoped));
       setStats(payload.stats ?? null);
       setNotable(payload.notable ?? []);
       setScanned(payload.scanned ?? 0);
@@ -163,7 +176,7 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
     } finally {
       setLoading(false);
     }
-  }, [sub2ApiConfigured, redirectToLogin]);
+  }, [platform, sub2ApiConfigured, redirectToLogin]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -191,6 +204,10 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
     return <p className="empty-state">账号池仅对 Sub2API 可用。请先在「多平台后端」配置并启用 Sub2API。</p>;
   }
 
+  if (pending) {
+    return <p className="empty-state">该平台账号池待接入，敬请期待。</p>;
+  }
+
   const available = stats ? `${stats.normalAccounts} / ${stats.totalAccounts}` : "—";
   const cooling = stats ? stats.ratelimitAccounts + stats.overloadAccounts : 0;
 
@@ -198,7 +215,11 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
     <div className="ops">
       <div className="ops-bar">
         <div className="ops-scan">
-          {truncated ? `已扫描前 ${scanned} 个账号（池内更多）` : `已扫描 ${scanned} 个账号`}
+          {scoped
+            ? `本人账号 ${scanned} 个`
+            : truncated
+              ? `已扫描前 ${scanned} 个账号（池内更多）`
+              : `已扫描 ${scanned} 个账号`}
         </div>
         <div className="pool-heading-actions">
           <label className="setting-toggle pool-auto">
@@ -217,8 +238,8 @@ export default function PoolOpsBoard({ sub2ApiConfigured }: { sub2ApiConfigured:
         <OpsStat k="冷却中" v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
         <OpsStat k="掉权" v={stats ? String(stats.errorAccounts) : "—"} tone={stats && stats.errorAccounts > 0 ? "bad" : "muted"} />
         <OpsStat k="实时并发" v={String(concurrencySum)} tone="muted" />
-        <OpsStat k="全局 RPM" v={stats ? String(stats.rpm) : "—"} tone="muted" />
-        <OpsStat k="全局 TPM" v={stats ? formatCount(stats.tpm) : "—"} tone="muted" />
+        <OpsStat k={scoped ? "本人 RPM" : "全局 RPM"} v={stats ? String(stats.rpm) : "—"} tone="muted" />
+        {scoped ? null : <OpsStat k="全局 TPM" v={stats ? formatCount(stats.tpm) : "—"} tone="muted" />}
         <OpsStat k="承载" v={stats ? `${stats.totalAccounts} / ${capacity}` : "—"} tone={stats && stats.totalAccounts >= capacity ? "bad" : "muted"} />
         <OpsStat k="当前告警" v={String(alerts.length)} tone={alerts.length > 0 ? (counts.critical > 0 ? "bad" : "warn") : "ok"} />
       </div>

@@ -67,12 +67,15 @@ type PoolStats = {
 };
 
 type GroupOption = { id: number; name: string };
+type PlatformOption = { ref: string; kind: string; label: string };
 
 type PoolResponse = {
   accounts?: { items?: PoolAccount[]; total?: number };
   stats?: PoolStats | null;
   groups?: GroupOption[] | null;
   capacity?: number;
+  scoped?: boolean;
+  pending?: boolean;
   error?: string;
 };
 
@@ -123,6 +126,11 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [mode, setMode] = useState<"accounts" | "ops">("accounts");
 
+  const [platform, setPlatform] = useState("sub2api");
+  const [platforms, setPlatforms] = useState<PlatformOption[]>([]);
+  const [scoped, setScoped] = useState(false);
+  const [pending, setPending] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -141,7 +149,7 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     try {
       // Client-side sorts fetch a stable page (created_at desc) and reorder locally.
       const [field, order] = sort.startsWith("c:") ? ["created_at", "desc"] : sort.split(":");
-      const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize), sort_by: field, sort_order: order });
+      const qs = new URLSearchParams({ platform, page: String(page), page_size: String(pageSize), sort_by: field, sort_order: order });
       if (search.trim()) qs.set("search", search.trim());
       if (group) qs.set("group", group);
       if (status) qs.set("status", status);
@@ -156,6 +164,16 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
         setError(readPoolError(response.status, payload.error));
         return;
       }
+      // Platforms other than Sub2API have no browsable pool yet.
+      if (payload.pending) {
+        setPending(true);
+        setAccounts([]);
+        setStats(null);
+        setTotal(0);
+        return;
+      }
+      setPending(false);
+      setScoped(Boolean(payload.scoped));
       setAccounts(payload.accounts?.items ?? []);
       setTotal(payload.accounts?.total ?? 0);
       setStats(payload.stats ?? null);
@@ -169,7 +187,7 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     } finally {
       setLoading(false);
     }
-  }, [sub2ApiConfigured, sort, page, pageSize, search, group, status, redirectToLogin]);
+  }, [sub2ApiConfigured, platform, sort, page, pageSize, search, group, status, redirectToLogin]);
 
   useEffect(() => {
     if (mode !== "accounts") return;
@@ -182,6 +200,20 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [autoRefresh, sub2ApiConfigured, load, mode]);
+
+  // Platforms change rarely — fetch the selector list once.
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/provisioning/pool/platforms", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { items?: PlatformOption[] } | null) => {
+        if (active && payload?.items?.length) setPlatforms(payload.items);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function applySearch(event: React.FormEvent) {
     event.preventDefault();
@@ -219,8 +251,21 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
         <div>
           <p className="label">账号池统揽</p>
           <h3 id="pool-title">OAuth 账号调度与健康</h3>
+          {scoped && !pending ? <p className="pool-scope-note">仅显示本人上号的账号</p> : null}
         </div>
         <div className="pool-heading-actions">
+          {platforms.length > 1 ? (
+            <select
+              className="text-input pool-platform"
+              value={platform}
+              onChange={(event) => { setPending(false); setPage(1); setPlatform(event.target.value); }}
+              aria-label="平台"
+            >
+              {platforms.map((option) => (
+                <option key={option.ref} value={option.ref}>{option.label}</option>
+              ))}
+            </select>
+          ) : null}
           <div className="pool-view pool-modes" role="tablist" aria-label="账号池视图">
             <button type="button" role="tab" aria-selected={mode === "accounts"} className={mode === "accounts" ? "is-active" : ""} onClick={() => setMode("accounts")}>
               账号列表
@@ -244,12 +289,14 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
         </div>
       </div>
 
-      {mode === "ops" ? <PoolOpsBoard sub2ApiConfigured={sub2ApiConfigured} /> : (
+      {mode === "ops" ? <PoolOpsBoard platform={platform} sub2ApiConfigured={sub2ApiConfigured} /> : pending ? (
+        <p className="empty-state">该平台账号池待接入，敬请期待。</p>
+      ) : (
       <>
       <div className="pool-stats">
         <PoolStat k="可用账号" v={available} tone="ok" />
         <PoolStat k="冷却中" v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
-        <PoolStat k="全局 RPM" v={stats ? String(stats.rpm) : "—"} tone="muted" />
+        <PoolStat k={scoped ? "本人 RPM" : "全局 RPM"} v={stats ? String(stats.rpm) : "—"} tone="muted" />
         <PoolStat k="今日额度" v={stats ? `$${stats.todayCost.toFixed(2)}` : "—"} tone="muted" />
         <PoolStat k="今日请求" v={stats ? formatCount(stats.todayRequests) : "—"} tone="muted" />
         <PoolStat k="承载" v={`${carried} / ${capacity}`} tone={carried >= capacity ? "bad" : "muted"} />
