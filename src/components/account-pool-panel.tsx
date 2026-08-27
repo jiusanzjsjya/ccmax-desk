@@ -1,7 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+
+type WindowUse = {
+  utilization: number;
+  resetsAt: string | null;
+  remainingSeconds: number;
+  cost: number | null;
+  requests: number | null;
+};
+
+type PoolUsage = {
+  today: { cost: number; requests: number } | null;
+  fiveHour: WindowUse | null;
+  sevenDay: WindowUse | null;
+  sevenDaySonnet: WindowUse | null;
+  sevenDayFable: WindowUse | null;
+  thirtyDay: WindowUse | null;
+};
 
 type PoolAccount = {
   id: number | string | null;
@@ -31,6 +48,7 @@ type PoolAccount = {
   tempUnschedulableReason: string | null;
   sessionWindowEnd: string | null;
   sessionWindowStatus: string | null;
+  usage?: PoolUsage | null;
 };
 
 type PoolStats = {
@@ -46,15 +64,31 @@ type PoolStats = {
   tpm: number;
 };
 
-type PoolResponse = { accounts?: { items?: PoolAccount[]; total?: number }; stats?: PoolStats | null; capacity?: number; error?: string };
+type GroupOption = { id: number; name: string };
 
-const SORTS: { value: string; label: string }[] = [
+type PoolResponse = {
+  accounts?: { items?: PoolAccount[]; total?: number };
+  stats?: PoolStats | null;
+  groups?: GroupOption[] | null;
+  capacity?: number;
+  error?: string;
+};
+
+const SERVER_SORTS: { value: string; label: string }[] = [
   { value: "created_at:desc", label: "添加时间 新到旧" },
   { value: "created_at:asc", label: "添加时间 旧到新" },
   { value: "last_used_at:desc", label: "最近使用 新到旧" },
   { value: "rate_multiplier:desc", label: "倍率 高到低" },
   { value: "status:asc", label: "状态" },
   { value: "name:asc", label: "名称" },
+];
+
+const CLIENT_SORTS: { value: string; label: string }[] = [
+  { value: "c:todayCost:desc", label: "今日额度 高到低" },
+  { value: "c:todayCost:asc", label: "今日额度 低到高" },
+  { value: "c:rpm:desc", label: "RPM 高到低" },
+  { value: "c:concurrency:desc", label: "并发 高到低" },
+  { value: "c:todayReq:desc", label: "今日请求 高到低" },
 ];
 
 const STATUSES: { value: string; label: string }[] = [
@@ -73,9 +107,12 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<PoolStats | null>(null);
   const [capacity, setCapacity] = useState(1000);
+  const [groups, setGroups] = useState<GroupOption[]>([]);
+  const groupsLoaded = useRef(false);
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [group, setGroup] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("created_at:desc");
   const [pageSize, setPageSize] = useState(20);
@@ -99,10 +136,13 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     setLoading(true);
     setError("");
     try {
-      const [field, order] = sort.split(":");
+      // Client-side sorts fetch a stable page (created_at desc) and reorder locally.
+      const [field, order] = sort.startsWith("c:") ? ["created_at", "desc"] : sort.split(":");
       const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize), sort_by: field, sort_order: order });
       if (search.trim()) qs.set("search", search.trim());
+      if (group) qs.set("group", group);
       if (status) qs.set("status", status);
+      if (!groupsLoaded.current) qs.set("with_groups", "1");
 
       const response = await fetch(`/api/provisioning/pool?${qs}`, { cache: "no-store" });
       if (response.status === 401) return redirectToLogin();
@@ -117,12 +157,16 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
       setTotal(payload.accounts?.total ?? 0);
       setStats(payload.stats ?? null);
       setCapacity(payload.capacity ?? 1000);
+      if (payload.groups) {
+        setGroups(payload.groups);
+        groupsLoaded.current = true;
+      }
     } catch {
       setError("无法连接账号池服务，请检查本地服务状态。");
     } finally {
       setLoading(false);
     }
-  }, [sub2ApiConfigured, sort, page, pageSize, search, status, redirectToLogin]);
+  }, [sub2ApiConfigured, sort, page, pageSize, search, group, status, redirectToLogin]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -140,6 +184,8 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     setPage(1);
     setSearch(searchInput);
   }
+
+  const displayed = useMemo(() => sortClientSide(accounts, sort), [accounts, sort]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -199,15 +245,28 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
           placeholder="搜索账号名 / 邮箱，回车"
           aria-label="搜索账号"
         />
+        <select className="text-input" value={group} onChange={(event) => { setPage(1); setGroup(event.target.value); }} aria-label="分组">
+          <option value="">全部分组</option>
+          {groups.map((option) => (
+            <option key={option.id} value={String(option.id)}>{option.name}</option>
+          ))}
+        </select>
         <select className="text-input" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }} aria-label="状态">
           {STATUSES.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
         <select className="text-input" value={sort} onChange={(event) => { setPage(1); setSort(event.target.value); }} aria-label="排序">
-          {SORTS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
+          <optgroup label="服务端排序">
+            {SERVER_SORTS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="本页排序">
+            {CLIENT_SORTS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </optgroup>
         </select>
         <select className="text-input" value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }} aria-label="每页">
           {PAGE_SIZES.map((size) => (
@@ -222,16 +281,16 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
 
       {error ? <div className="error-box" role="alert">{error}</div> : null}
 
-      {accounts.length === 0 && !loading && !error ? (
+      {displayed.length === 0 && !loading && !error ? (
         <p className="empty-state">没有匹配的账号。调整筛选或先在「授权上号」入池。</p>
       ) : view === "card" ? (
         <div className="pool-grid">
-          {accounts.map((account, index) => (
+          {displayed.map((account, index) => (
             <PoolCard key={keyOf(account, index)} account={account} />
           ))}
         </div>
       ) : (
-        <PoolList accounts={accounts} />
+        <PoolList accounts={displayed} />
       )}
 
       <div className="pool-foot">
@@ -266,6 +325,7 @@ function PoolCard({ account }: { account: PoolAccount }) {
   const health = healthOf(account);
   const cooldown = cooldownOf(account);
   const title = account.email || account.name || "未命名账号";
+  const usage = account.usage;
 
   return (
     <article className="pool-card">
@@ -281,15 +341,30 @@ function PoolCard({ account }: { account: PoolAccount }) {
       <div className="pool-badges">
         {account.subscription ? <span className="pool-tag">{account.subscription.toUpperCase()}</span> : null}
         <span className="pool-tag is-faint">{account.type.toUpperCase()}</span>
-        {account.groups.map((group) => (
-          <span className="pool-tag is-group" key={group}>{group}</span>
+        {account.groups.map((groupName) => (
+          <span className="pool-tag is-group" key={groupName}>{groupName}</span>
         ))}
       </div>
 
-      {account.status === "error" && account.errorMessage ? (
-        <p className="pool-error">{account.errorMessage}</p>
-      ) : null}
+      {account.status === "error" && account.errorMessage ? <p className="pool-error">{account.errorMessage}</p> : null}
       {cooldown ? <p className="pool-cooldown">{cooldown}</p> : null}
+
+      {usage ? (
+        <>
+          <div className="pool-usage">
+            <UsageWin label="5h" w={usage.fiveHour} />
+            <UsageWin label="7d" w={usage.sevenDay} />
+            <UsageWin label="30d" w={usage.thirtyDay} />
+          </div>
+          {usage.sevenDayFable || usage.sevenDaySonnet ? (
+            <p className="pool-models">
+              {usage.sevenDayFable ? `Fable5 ${Math.round(usage.sevenDayFable.utilization)}%` : "Fable5 无数据"}
+              {" · "}
+              {usage.sevenDaySonnet ? `Sonnet ${Math.round(usage.sevenDaySonnet.utilization)}%` : "Sonnet 无数据"}
+            </p>
+          ) : null}
+        </>
+      ) : null}
 
       <div className="pool-meters">
         <Meter label="RPM" current={account.currentRpm} limit={account.baseRpm} />
@@ -298,8 +373,8 @@ function PoolCard({ account }: { account: PoolAccount }) {
       </div>
 
       <div className="pool-card-foot">
-        <span>倍率 ×{account.rateMultiplier ?? 1}</span>
-        <span>最近使用 {account.lastUsedAt ? formatDate(account.lastUsedAt) : "—"}</span>
+        <span>今日 {usage?.today ? `$${usage.today.cost.toFixed(2)} · ${formatCount(usage.today.requests)}次` : "—"}</span>
+        <span>倍率 ×{account.rateMultiplier ?? 1} · 最近 {account.lastUsedAt ? formatDate(account.lastUsedAt) : "—"}</span>
       </div>
     </article>
   );
@@ -312,6 +387,7 @@ function PoolList({ accounts }: { accounts: PoolAccount[] }) {
         <span>账号</span>
         <span>状态</span>
         <span>订阅</span>
+        <span>今日额度</span>
         <span>RPM</span>
         <span>并发</span>
         <span>SLOTS</span>
@@ -327,6 +403,7 @@ function PoolList({ accounts }: { accounts: PoolAccount[] }) {
             </span>
             <span><i className={`account-status ${health.className}`}>{health.label}</i></span>
             <span>{account.subscription ? account.subscription.toUpperCase() : "—"}</span>
+            <span>{account.usage?.today ? `$${account.usage.today.cost.toFixed(2)}` : "—"}</span>
             <span>{meterText(account.currentRpm, account.baseRpm)}</span>
             <span>{meterText(account.currentConcurrency, account.concurrency)}</span>
             <span>{meterText(account.activeSessions, account.maxSessions)}</span>
@@ -334,6 +411,25 @@ function PoolList({ accounts }: { accounts: PoolAccount[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function UsageWin({ label, w }: { label: string; w: WindowUse | null }) {
+  const pct = w ? Math.min(100, Math.max(0, Math.round(w.utilization))) : 0;
+  return (
+    <div className={`pool-win ${w ? "" : "is-empty"}`}>
+      <div className="pool-win-head">
+        <span>{label}</span>
+        <b>{w ? `${pct}%` : "无数据"}</b>
+      </div>
+      <div className="pool-meter-track">
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      <div className="pool-win-sub">
+        <span>{w && w.cost != null ? `$${w.cost.toFixed(2)}` : "—"}{w && w.requests != null ? ` · ${formatCount(w.requests)}次` : ""}</span>
+        <span>{w && w.remainingSeconds > 0 ? `恢复 ${formatDuration(w.remainingSeconds)}` : ""}</span>
+      </div>
     </div>
   );
 }
@@ -353,6 +449,27 @@ function Meter({ label, current, limit }: { label: string; current: number | nul
       </div>
     </div>
   );
+}
+
+function sortClientSide(list: PoolAccount[], sort: string): PoolAccount[] {
+  if (!sort.startsWith("c:")) return list;
+  const [, key, order] = sort.split(":");
+  const dir = order === "asc" ? 1 : -1;
+  const valueOf = (account: PoolAccount): number => {
+    switch (key) {
+      case "todayCost":
+        return account.usage?.today?.cost ?? -1;
+      case "todayReq":
+        return account.usage?.today?.requests ?? -1;
+      case "rpm":
+        return account.currentRpm ?? -1;
+      case "concurrency":
+        return account.currentConcurrency ?? -1;
+      default:
+        return 0;
+    }
+  };
+  return [...list].sort((a, b) => (valueOf(a) - valueOf(b)) * dir);
 }
 
 function healthOf(account: PoolAccount): { label: string; className: string } {
@@ -388,6 +505,15 @@ function initial(value: string) {
 function formatCount(value: number) {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
   return String(value);
+}
+
+function formatDuration(seconds: number) {
+  if (seconds <= 0) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h${m ? ` ${m}m` : ""}`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
 }
 
 function formatDate(value: string | null) {

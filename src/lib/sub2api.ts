@@ -269,6 +269,26 @@ export type PoolAccount = {
   tempUnschedulableReason: string | null;
   sessionWindowEnd: string | null;
   sessionWindowStatus: string | null;
+  // Enriched server-side (P2) from the batch usage/today-stats endpoints.
+  usage?: PoolUsage | null;
+};
+
+/** One usage window: utilization is a percent (0–100+), not a fraction. */
+export type WindowUse = {
+  utilization: number;
+  resetsAt: string | null;
+  remainingSeconds: number;
+  cost: number | null;
+  requests: number | null;
+};
+
+export type PoolUsage = {
+  today: { cost: number; requests: number } | null;
+  fiveHour: WindowUse | null;
+  sevenDay: WindowUse | null;
+  sevenDaySonnet: WindowUse | null;
+  sevenDayFable: WindowUse | null;
+  thirtyDay: WindowUse | null;
 };
 
 /** Aggregate strip from GET /admin/dashboard/stats (no per-window cost split). */
@@ -373,6 +393,91 @@ export async function getDashboardStats(): Promise<PoolStats> {
     rpm: numberOf(data.rpm),
     tpm: numberOf(data.tpm),
   };
+}
+
+type RawWindowStats = { requests?: number; tokens?: number; cost?: number; standard_cost?: number; user_cost?: number };
+type RawUsageProgress = {
+  utilization?: number;
+  resets_at?: string | null;
+  remaining_seconds?: number;
+  window_stats?: RawWindowStats | null;
+  used_requests?: number;
+  limit_requests?: number;
+};
+type RawUsageInfo = {
+  five_hour?: RawUsageProgress | null;
+  seven_day?: RawUsageProgress | null;
+  seven_day_sonnet?: RawUsageProgress | null;
+  seven_day_fable?: RawUsageProgress | null;
+  thirty_day?: RawUsageProgress | null;
+};
+
+/**
+ * Per-account usage/cost windows for the pool view. Combines the today-stats
+ * batch (today cost/requests) with the usage batch (5h/7d/30d utilization +
+ * reset + per-window cost). Keyed by account id (as a string, matching Sub2API's
+ * stringified map keys). Both calls are best-effort — a failure yields no usage
+ * rather than breaking the account list.
+ */
+export async function fetchPoolUsage(ids: number[]): Promise<Record<string, PoolUsage>> {
+  if (!ids.length) return {};
+  const config = await getSub2ApiConfig();
+
+  const [today, usage] = await Promise.all([
+    request<{ stats?: Record<string, RawWindowStats> }>(config, "/api/v1/admin/accounts/today-stats/batch", {
+      method: "POST",
+      body: JSON.stringify({ account_ids: ids }),
+    }).catch(() => ({ stats: {} as Record<string, RawWindowStats> })),
+    request<{ usage?: Record<string, RawUsageInfo> }>(config, "/api/v1/admin/accounts/usage/batch", {
+      method: "POST",
+      body: JSON.stringify({ account_ids: ids, force: false }),
+    }).catch(() => ({ usage: {} as Record<string, RawUsageInfo> })),
+  ]);
+
+  const todayStats = today?.stats ?? {};
+  const usageMap = usage?.usage ?? {};
+  const out: Record<string, PoolUsage> = {};
+
+  for (const id of ids) {
+    const key = String(id);
+    const t = todayStats[key];
+    const u = usageMap[key];
+    out[key] = {
+      today: t ? { cost: numberOf(t.cost), requests: numberOf(t.requests) } : null,
+      fiveHour: mapWindow(u?.five_hour),
+      sevenDay: mapWindow(u?.seven_day),
+      sevenDaySonnet: mapWindow(u?.seven_day_sonnet),
+      sevenDayFable: mapWindow(u?.seven_day_fable),
+      thirtyDay: mapWindow(u?.thirty_day),
+    };
+  }
+  return out;
+}
+
+function mapWindow(progress: RawUsageProgress | null | undefined): WindowUse | null {
+  if (!progress || typeof progress !== "object") return null;
+  const stats = progress.window_stats;
+  return {
+    utilization: numberOf(progress.utilization),
+    resetsAt: typeof progress.resets_at === "string" ? progress.resets_at : null,
+    remainingSeconds: numberOf(progress.remaining_seconds),
+    cost: stats && typeof stats.cost === "number" ? stats.cost : null,
+    requests: stats && typeof stats.requests === "number" ? stats.requests : null,
+  };
+}
+
+/** List account groups (id + name) for the pool filter dropdown. */
+export async function listGroups(): Promise<{ id: number; name: string }[]> {
+  const config = await getSub2ApiConfig();
+  const data = await request<{ items?: Array<{ id?: number; name?: string }> } | Array<{ id?: number; name?: string }>>(
+    config,
+    "/api/v1/admin/groups?page_size=1000&sort_by=sort_order&sort_order=asc",
+    { method: "GET" },
+  );
+  const items = Array.isArray(data) ? data : data.items ?? [];
+  return items
+    .filter((group): group is { id: number; name: string } => typeof group?.id === "number" && typeof group?.name === "string")
+    .map((group) => ({ id: group.id, name: group.name }));
 }
 
 function summarizePoolAccount(value: RawPoolAccount): PoolAccount {

@@ -1479,14 +1479,24 @@ select.text-input,
 }
 
 .pool-filters {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(0, 1fr)) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
 }
 
+.pool-filters .text-input {
+  flex: 1 1 150px;
+  min-width: 130px;
+}
+
+.pool-filters .text-input:first-child {
+  flex: 2 1 200px;
+}
+
 .pool-view {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--line);
@@ -1676,6 +1686,60 @@ select.text-input,
   font-size: 0.66rem;
 }
 
+.pool-usage {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.pool-win {
+  display: grid;
+  gap: 5px;
+}
+
+.pool-win.is-empty {
+  opacity: 0.6;
+}
+
+.pool-win-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pool-win-head span {
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pool-win-head b {
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.pool-win-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.58rem;
+}
+
+.pool-models {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 0.64rem;
+}
+
 .pool-table {
   display: grid;
   gap: 6px;
@@ -1683,7 +1747,7 @@ select.text-input,
 
 .pool-row {
   display: grid;
-  grid-template-columns: minmax(0, 2.2fr) 0.9fr 0.8fr 1fr 1fr 1fr 0.6fr;
+  grid-template-columns: minmax(0, 2fr) 0.8fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.6fr;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
@@ -1754,13 +1818,8 @@ select.text-input,
 }
 
 @media (max-width: 720px) {
-  .pool-filters {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .pool-filters .text-input:first-child,
-  .pool-view {
-    grid-column: 1 / -1;
+  .pool-usage {
+    grid-template-columns: 1fr;
   }
 
   .pool-row,
@@ -1768,8 +1827,11 @@ select.text-input,
     grid-template-columns: minmax(0, 1.6fr) 0.8fr 1fr;
   }
 
-  .pool-row > span:nth-child(4),
-  .pool-row > span:nth-child(7) {
+  .pool-row > span:nth-child(3),
+  .pool-row > span:nth-child(5),
+  .pool-row > span:nth-child(6),
+  .pool-row > span:nth-child(7),
+  .pool-row > span:nth-child(8) {
     display: none;
   }
 }

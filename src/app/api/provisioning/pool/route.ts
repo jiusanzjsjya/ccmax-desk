@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 
 import { accountPoolAccess, getAccessContext } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
-import { getDashboardStats, listPoolAccounts, mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
+import {
+  fetchPoolUsage,
+  getDashboardStats,
+  listGroups,
+  listPoolAccounts,
+  mapSub2ApiError,
+  Sub2ApiError,
+  type PoolUsage,
+} from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +36,25 @@ export async function GET(request: Request) {
   const status = (params.get("status") || "").slice(0, 20);
   const sortBy = (params.get("sort_by") || "created_at").slice(0, 40);
   const sortOrder = params.get("sort_order") === "asc" ? "asc" : "desc";
+  // Groups change rarely — the client asks for them once, not on every refresh.
+  const withGroups = params.get("with_groups") === "1";
 
   try {
-    // Accounts are the payload; stats are best-effort (dashboard/stats may be gated).
-    const [accounts, stats] = await Promise.all([
+    // Accounts are the payload; stats/groups are best-effort (may be gated).
+    const [accounts, stats, groups] = await Promise.all([
       listPoolAccounts({ page, pageSize, search, group, status, sortBy, sortOrder }),
       getDashboardStats().catch(() => null),
+      withGroups ? listGroups().catch(() => []) : Promise.resolve(null),
     ]);
 
-    return NextResponse.json({ accounts, stats, capacity: POOL_CAPACITY });
+    // Enrich this page with per-account cost/usage windows (best-effort).
+    const ids = accounts.items
+      .map((account) => Number(account.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const usageById: Record<string, PoolUsage> = ids.length ? await fetchPoolUsage(ids).catch(() => ({})) : {};
+    const items = accounts.items.map((account) => ({ ...account, usage: usageById[String(account.id)] ?? null }));
+
+    return NextResponse.json({ accounts: { items, total: accounts.total }, stats, groups, capacity: POOL_CAPACITY });
   } catch (error) {
     const failure = mapSub2ApiError(error, "读取账号池失败");
     if (!(error instanceof Sub2ApiError)) {
