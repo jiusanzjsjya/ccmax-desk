@@ -613,6 +613,16 @@ type GenerateAuthUrlResponse = {
   session_id: string;
 };
 
+/**
+ * Sub2API admin auth accepts two credentials (verified vs source): a static,
+ * non-expiring Admin API Key sent as `x-api-key: admin-...`, or a login JWT sent
+ * as `Authorization: Bearer ...`. Route by prefix so operators can paste either
+ * into the same token field — the `admin-` key is the long-lived option.
+ */
+function authHeader(token: string): Record<string, string> {
+  return token.startsWith("admin-") ? { "x-api-key": token } : { Authorization: `Bearer ${token}` };
+}
+
 async function request<T>(
   config: Awaited<ReturnType<typeof getSub2ApiConfig>>,
   path: string,
@@ -626,7 +636,7 @@ async function request<T>(
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.adminToken}`,
+        ...authHeader(config.adminToken),
         ...init.headers,
       },
       cache: "no-store",
