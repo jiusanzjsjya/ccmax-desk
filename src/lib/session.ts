@@ -9,6 +9,13 @@ import { roleValues, type Role } from "@/lib/roles";
 const sessionCookieName = "ccmax_admin_session";
 const sessionLifetimeSeconds = 60 * 60 * 24 * 7;
 
+// The Secure flag must track the transport actually in use, not NODE_ENV:
+// `next start` forces NODE_ENV=production even on a plain-HTTP deployment, and a
+// Secure cookie is silently dropped by the browser over HTTP — which locks the
+// operator out. Gate on APP_URL's scheme so HTTP works now and HTTPS re-enables
+// Secure automatically once APP_URL is switched to https://.
+const useSecureCookie = env.APP_URL.startsWith("https://");
+
 export type AdminSession = {
   sessionId: string;
   userId: string;
@@ -102,7 +109,7 @@ export async function getCurrentSession() {
 export function setSessionCookie(response: NextResponse, sessionToken: string) {
   response.cookies.set(sessionCookieName, sessionToken, {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
+    secure: useSecureCookie,
     sameSite: "lax",
     path: "/",
     maxAge: sessionLifetimeSeconds,
@@ -112,7 +119,7 @@ export function setSessionCookie(response: NextResponse, sessionToken: string) {
 export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(sessionCookieName, "", {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
+    secure: useSecureCookie,
     sameSite: "lax",
     path: "/",
     maxAge: 0,
