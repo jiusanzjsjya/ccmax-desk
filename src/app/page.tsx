@@ -1,6 +1,5 @@
 import AdminLoginForm from "@/components/admin-login-form";
 import ThemeToggle from "@/components/theme-toggle";
-import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { env } from "@/lib/env";
 import { getCurrentSession } from "@/lib/session";
 import { redirect } from "next/navigation";
@@ -11,8 +10,6 @@ export default async function Home() {
   if (session) {
     redirect("/dashboard");
   }
-
-  const sub2Ready = await isSub2ApiConfigured();
 
   return (
     <main className="shell">
@@ -52,20 +49,9 @@ export default async function Home() {
             </div>
             <>
               <p className="label">受保护入口</p>
-              <h2>开始授权</h2>
-              <p className="form-intro">用账号密码登录后进入三步向导：生成槽位、完成官方授权、提交回执。</p>
+              <h2>登录</h2>
+              <p className="form-intro">使用账号密码登录，进入 Claude 授权工作台。</p>
               <AdminLoginForm configured={env.isSuperadminConfigured} />
-              <div className="status-box">
-                <span className="status-label">启动前检查</span>
-                <br />
-                {env.isSuperadminConfigured
-                  ? "超级管理员账号已配置。"
-                  : "请先在 .env.local 配置 SUPERADMIN_USERNAME / SUPERADMIN_PASSWORD。"}
-                <br />
-                {sub2Ready
-                  ? "Sub2API 管理令牌已配置。"
-                  : "Sub2API 尚未配置，可登录后在超管后台填写。"}
-              </div>
             </>
           </div>
         </div>

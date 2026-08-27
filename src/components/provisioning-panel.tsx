@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
+import { CLAUDE_COUNTRIES, DEFAULT_COUNTRY } from "@/lib/claude-countries";
 
 type ProvisioningPanelProps = {
   adminConfigured: boolean;
@@ -11,7 +12,6 @@ type ProvisioningPanelProps = {
   canViewAccountPool: boolean;
 };
 
-type Step = 1 | 2 | 3;
 type Tab = "wizard" | "pending" | "accounts";
 type SlotStatus = "pending" | "submitting" | "done" | "error";
 
@@ -57,11 +57,9 @@ const MAX_BATCH = 5;
 export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, canViewAccountPool }: ProvisioningPanelProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("wizard");
-  const [step, setStep] = useState<Step>(1);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [batchCount, setBatchCount] = useState(1);
   const [notes, setNotes] = useState("");
-  const [groupIds, setGroupIds] = useState("");
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -70,9 +68,10 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   const [now, setNow] = useState(() => Date.now());
   const [proxies, setProxies] = useState<ProxyOption[]>([]);
   const [selectedProxyId, setSelectedProxyId] = useState("");
+  const [proxyAllowed, setProxyAllowed] = useState(false);
   const [backends, setBackends] = useState<BackendOption[]>([]);
   const [selectedBackend, setSelectedBackend] = useState("");
-  const [country, setCountry] = useState("");
+  const [country, setCountry] = useState(DEFAULT_COUNTRY);
   const [proxyTest, setProxyTest] = useState<{ status: "idle" | "testing" | "ok" | "error"; message: string }>({
     status: "idle",
     message: "",
@@ -119,7 +118,6 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         if (cancelled || !payload.slots?.length) return;
 
         setSlots(payload.slots.map((slot) => ({ ...slot, code: "", status: "pending" as const })));
-        setStep(2);
       } catch {
         // Ignore restore failures; the operator can generate new slots.
       }
@@ -137,9 +135,11 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     (async () => {
       try {
         const response = await fetch("/api/provisioning/proxies", { cache: "no-store" });
-        if (!response.ok) return;
+        if (!response.ok) return; // 403 for plain users → proxy tools stay hidden
         const payload = (await response.json().catch(() => ({}))) as { items?: ProxyOption[] };
-        if (!cancelled && payload.items?.length) setProxies(payload.items);
+        if (cancelled) return;
+        setProxyAllowed(true); // admin/superadmin may pick or create proxies
+        if (payload.items?.length) setProxies(payload.items);
       } catch {
         // Proxy selection is optional; ignore failures.
       }
@@ -207,6 +207,38 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     }
   }
 
+  async function addCustomProxy(input: {
+    name: string;
+    protocol: string;
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    try {
+      const response = await fetch("/api/provisioning/proxies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { proxy?: ProxyOption; error?: string };
+      if (response.status === 401) {
+        redirectToLogin();
+        return { ok: false, message: "" };
+      }
+      if (!response.ok || !payload.proxy) {
+        return { ok: false, message: readApiError(response.status, payload.error, "创建自定义代理失败。") };
+      }
+      const proxy = payload.proxy;
+      setProxies((current) => [proxy, ...current.filter((item) => String(item.id) !== String(proxy.id))]);
+      setSelectedProxyId(String(proxy.id));
+      setProxyTest({ status: "idle", message: "" });
+      return { ok: true, message: `已创建并选用代理：${proxy.name || `${proxy.host}:${proxy.port}`}` };
+    } catch {
+      return { ok: false, message: "无法连接代理创建服务。" };
+    }
+  }
+
   async function generateSlots() {
     setActiveTab("wizard");
     setError("");
@@ -236,7 +268,6 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
       const fresh: Slot[] = payload.slots.map((slot) => ({ ...slot, code: "", status: "pending" }));
       setSlots((current) => [...current, ...fresh]);
-      setStep(2);
       setMessage(
         payload.partial
           ? `已生成 ${fresh.length} 个槽位（部分请求失败）。请逐个完成官方登录后提交回执。`
@@ -249,17 +280,10 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     }
   }
 
-  function goToSubmitStep() {
-    if (pendingCount === 0) {
-      setError("当前没有待处理槽位，请先生成槽位。");
-      setActiveTab("wizard");
-      setStep(1);
-      return;
-    }
-    setActiveTab("wizard");
-    setStep(3);
+  function cancelBatch() {
+    setSlots((current) => current.filter((slot) => slot.status === "done"));
     setError("");
-    setMessage("");
+    setMessage("已取消当前授权批次，待处理槽位已清空。");
   }
 
   async function submitSlot(slot: Slot) {
@@ -277,11 +301,6 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     updateSlot(slot.flowId, { status: "submitting", code: normalizedCode, result: undefined });
 
     try {
-      const parsedGroupIds = groupIds
-        .split(",")
-        .map((value) => Number(value.trim()))
-        .filter((value) => Number.isInteger(value) && value > 0);
-
       const response = await fetch("/api/provisioning/claude/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -290,7 +309,6 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           code: normalizedCode,
           notes: notes.trim() || undefined,
           country: country.trim() || undefined,
-          groupIds: parsedGroupIds,
           ...(selectedBackend ? { backend: selectedBackend } : {}),
         }),
       });
@@ -394,34 +412,32 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       {activeTab === "accounts" && canViewAccountPool ? (
         <AccountsView accounts={accounts} loading={accountsLoading} onRefresh={loadAccounts} />
       ) : activeTab === "pending" ? (
-        <PendingView slots={activeSlots} now={now} onContinue={goToSubmitStep} onNew={() => { setActiveTab("wizard"); setStep(1); }} onCopy={copyToClipboard} />
+        <PendingView slots={activeSlots} now={now} onContinue={() => setActiveTab("wizard")} onNew={() => setActiveTab("wizard")} onCopy={copyToClipboard} />
       ) : (
         <WizardView
-          step={step}
           slots={slots}
           activeSlots={activeSlots}
           batchCount={batchCount}
           notes={notes}
-          groupIds={groupIds}
           loading={loading}
           configured={configured}
           message={message}
           error={error}
           now={now}
           onGenerate={generateSlots}
-          onContinue={goToSubmitStep}
           onSubmitSlot={submitSlot}
-          onBackToStart={() => setStep(1)}
+          onCancel={cancelBatch}
           onClearFinished={clearFinished}
           onCopy={copyToClipboard}
           setBatchCount={setBatchCount}
           setNotes={setNotes}
-          setGroupIds={setGroupIds}
           setSlotCode={(flowId, code) => updateSlot(flowId, { code, status: "pending", result: undefined })}
           proxies={proxies}
+          proxyAllowed={proxyAllowed}
           selectedProxyId={selectedProxyId}
           setSelectedProxyId={(value) => { setSelectedProxyId(value); setProxyTest({ status: "idle", message: "" }); }}
           onTestProxy={testSelectedProxy}
+          onAddProxy={addCustomProxy}
           proxyTest={proxyTest}
           country={country}
           setCountry={setCountry}
@@ -446,228 +462,200 @@ async function copyToClipboard(value: string) {
 }
 
 function WizardView({
-  step,
   slots,
   activeSlots,
   batchCount,
   notes,
-  groupIds,
   loading,
   configured,
   message,
   error,
   now,
   onGenerate,
-  onContinue,
   onSubmitSlot,
-  onBackToStart,
+  onCancel,
   onClearFinished,
   onCopy,
   setBatchCount,
   setNotes,
-  setGroupIds,
   setSlotCode,
   proxies,
+  proxyAllowed,
   selectedProxyId,
   setSelectedProxyId,
   onTestProxy,
+  onAddProxy,
   proxyTest,
   country,
   setCountry,
 }: {
-  step: Step;
   slots: Slot[];
   activeSlots: Slot[];
   batchCount: number;
   notes: string;
-  groupIds: string;
   loading: boolean;
   configured: boolean;
   message: string;
   error: string;
   now: number;
   onGenerate: () => void;
-  onContinue: () => void;
   onSubmitSlot: (slot: Slot) => void;
-  onBackToStart: () => void;
+  onCancel: () => void;
   onClearFinished: () => void;
   onCopy: (value: string) => void;
   setBatchCount: (value: number) => void;
   setNotes: (value: string) => void;
-  setGroupIds: (value: string) => void;
   setSlotCode: (flowId: string, code: string) => void;
   proxies: ProxyOption[];
+  proxyAllowed: boolean;
   selectedProxyId: string;
   setSelectedProxyId: (value: string) => void;
   onTestProxy: () => void;
+  onAddProxy: (input: { name: string; protocol: string; host: string; port: number; username?: string; password?: string }) => Promise<{ ok: boolean; message: string }>;
   proxyTest: { status: "idle" | "testing" | "ok" | "error"; message: string };
   country: string;
   setCountry: (value: string) => void;
 }) {
   const doneCount = slots.filter((slot) => slot.status === "done").length;
+  const [countryQuery, setCountryQuery] = useState("");
+  const countryOptions = useMemo(() => {
+    const query = countryQuery.trim();
+    if (!query) return CLAUDE_COUNTRIES;
+    const lower = query.toLowerCase();
+    const matches = CLAUDE_COUNTRIES.filter((item) => item.zh.includes(query) || item.code.toLowerCase().includes(lower));
+    // Keep the current selection visible even when it's filtered out.
+    if (matches.some((item) => item.code === country)) return matches;
+    const selected = CLAUDE_COUNTRIES.find((item) => item.code === country);
+    return selected ? [selected, ...matches] : matches;
+  }, [countryQuery, country]);
 
   return (
     <section className="wizard-panel" aria-labelledby="wizard-title">
-      <div className="wizard-steps" aria-label="授权步骤">
-        <StepItem number={1} label="生成槽位" current={step === 1} done={step > 1} />
-        <StepItem number={2} label="官方授权" current={step === 2} done={step > 2} />
-        <StepItem number={3} label="提交回执" current={step === 3} done={false} />
-      </div>
-
-      {step === 1 ? (
-        <div className="step-body">
-          <p className="label">步骤一 / 生成授权槽位</p>
-          <h3 id="wizard-title">准备 Claude Max 账号</h3>
-          <p className="step-lead">
-            一次可生成 1–5 个授权槽位，每个槽位对应一个独立的 Claude 官方授权链接。备注与分组会应用到这一批账号。
-          </p>
-          <div className="advanced-fields">
-            <label className="field-label" htmlFor="batch-count">生成槽位数（1–{MAX_BATCH}）</label>
-            <input
-              id="batch-count"
-              className="text-input"
-              type="number"
-              min={1}
-              max={MAX_BATCH}
-              value={batchCount}
-              onChange={(event) => setBatchCount(clampBatch(event.target.value))}
-              disabled={loading}
-            />
-            <label className="field-label" htmlFor="batch-notes">批次备注（可选）</label>
-            <input
-              id="batch-notes"
-              className="text-input"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="例如 Allen-0826，不要填写 token"
-              maxLength={500}
-              disabled={loading}
-            />
-            <label className="field-label" htmlFor="batch-groups">分组 ID（可选）</label>
-            <input
-              id="batch-groups"
-              className="text-input"
-              value={groupIds}
-              onChange={(event) => setGroupIds(event.target.value)}
-              placeholder="例如：1,2"
-              disabled={loading}
-            />
-            <label className="field-label" htmlFor="batch-country">注册国家（本地标签，可选）</label>
-            <input
-              id="batch-country"
-              className="text-input"
-              list="country-options"
-              value={country}
-              onChange={(event) => setCountry(event.target.value)}
-              placeholder="例如 US / JP / SG，仅作账号备注标签"
-              maxLength={60}
-              disabled={loading}
-            />
-            <datalist id="country-options">
-              {["US", "JP", "SG", "HK", "GB", "DE", "FR", "CA", "AU", "KR", "TW"].map((code) => (
-                <option key={code} value={code} />
-              ))}
-            </datalist>
-            {proxies.length ? (
-              <>
-                <label className="field-label" htmlFor="batch-proxy">出口代理（Sub2API 代理，可选）</label>
-                <div className="flow-actions">
-                  <select
-                    id="batch-proxy"
-                    className="text-input"
-                    value={selectedProxyId}
-                    onChange={(event) => setSelectedProxyId(event.target.value)}
-                    disabled={loading}
-                  >
-                    <option value="">默认（由 Sub2API 分配）</option>
-                    {proxies.map((proxy) => (
-                      <option key={proxy.id} value={String(proxy.id)}>
-                        {proxyLabel(proxy)}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={onTestProxy}
-                    disabled={!selectedProxyId || proxyTest.status === "testing"}
-                  >
-                    {proxyTest.status === "testing" ? "检测中..." : "检测代理"}
-                  </button>
-                </div>
-                {proxyTest.message ? (
-                  <p className={proxyTest.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>
-                    {proxyTest.message}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
-          </div>
+      <div className="step-body">
+        <p className="label">授权上号</p>
+        <h3 id="wizard-title">准备 Claude Max 账号</h3>
+        <p className="step-lead">
+          一次可生成 1–{MAX_BATCH} 个授权槽位；打开官方链接登录授权后，把回执粘回对应槽位提交入池——全部在本页完成。备注与注册国家会应用到这一批账号。
+        </p>
+        <div className="advanced-fields">
+          <label className="field-label" htmlFor="batch-count">生成槽位数（1–{MAX_BATCH}）</label>
+          <input
+            id="batch-count"
+            className="text-input"
+            type="number"
+            min={1}
+            max={MAX_BATCH}
+            value={batchCount}
+            onChange={(event) => setBatchCount(clampBatch(event.target.value))}
+            disabled={loading}
+          />
+          <label className="field-label" htmlFor="batch-notes">批次备注（可选）</label>
+          <input
+            id="batch-notes"
+            className="text-input"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="例如 Allen-0826，不要填写 token"
+            maxLength={500}
+            disabled={loading}
+          />
+          <label className="field-label" htmlFor="batch-country-search">注册国家</label>
+          <input
+            id="batch-country-search"
+            className="text-input"
+            value={countryQuery}
+            onChange={(event) => setCountryQuery(event.target.value)}
+            placeholder="搜索国家/地区，如 美国 或 US"
+            aria-label="搜索注册国家"
+            disabled={loading}
+          />
+          <select
+            id="batch-country"
+            className="text-input"
+            value={country}
+            onChange={(event) => setCountry(event.target.value)}
+            disabled={loading}
+            aria-label="注册国家"
+          >
+            {countryOptions.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.zh}（{item.code}）
+              </option>
+            ))}
+          </select>
+          {proxyAllowed ? (
+            <>
+              <label className="field-label" htmlFor="batch-proxy">出口代理（可选）</label>
+              <div className="flow-actions">
+                <select
+                  id="batch-proxy"
+                  className="text-input"
+                  value={selectedProxyId}
+                  onChange={(event) => setSelectedProxyId(event.target.value)}
+                  disabled={loading}
+                >
+                  <option value="">默认（由 Sub2API 分配）</option>
+                  {proxies.map((proxy) => (
+                    <option key={proxy.id} value={String(proxy.id)}>
+                      {proxyLabel(proxy)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={onTestProxy}
+                  disabled={!selectedProxyId || proxyTest.status === "testing"}
+                >
+                  {proxyTest.status === "testing" ? "检测中..." : "检测代理"}
+                </button>
+              </div>
+              {proxyTest.message ? (
+                <p className={proxyTest.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>
+                  {proxyTest.message}
+                </p>
+              ) : null}
+              <CustomProxyForm onAdd={onAddProxy} disabled={loading} />
+            </>
+          ) : null}
+        </div>
+        <div className="wizard-actions">
           <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading}>
             {loading ? "正在生成..." : `生成 ${batchCount} 个授权槽位`}
           </button>
           {activeSlots.length ? (
-            <p className="step-lead">已有 {activeSlots.length} 个待处理槽位，可继续到第二步或追加生成。</p>
+            <button className="secondary-button" type="button" onClick={onCancel} disabled={loading}>
+              取消（清空 {activeSlots.length} 个待处理）
+            </button>
           ) : null}
         </div>
-      ) : null}
+      </div>
 
-      {step === 2 ? (
+      {activeSlots.length ? (
         <div className="step-body">
-          <p className="label">步骤二 / 官方授权</p>
-          <h3 id="wizard-title">在 Claude 完成官方授权</h3>
-          <p className="step-lead">逐个打开授权链接登录并同意授权。成功页会显示完整的 code#state，复制后回到第三步提交。</p>
-          {activeSlots.length ? (
-            <div className="slot-cards">
-              {activeSlots.map((slot, index) => (
-                <SlotAuthCard key={slot.flowId} slot={slot} index={index} now={now} onCopy={onCopy} />
-              ))}
-            </div>
-          ) : (
-            <p className="empty-state">没有待授权的槽位，请回到第一步生成。</p>
-          )}
-          <div className="wizard-actions">
-            <button className="oauth-button" type="button" onClick={onContinue} disabled={activeSlots.length === 0}>
-              我已完成授权，去提交回执
-            </button>
-            <button className="secondary-button" type="button" onClick={onBackToStart} disabled={loading}>
-              追加生成槽位
-            </button>
+          <p className="label">授权与回执</p>
+          <h3>完成授权并提交</h3>
+          <p className="step-lead">逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。</p>
+          <div className="slot-cards">
+            {activeSlots.map((slot, index) => (
+              <SlotFlowCard
+                key={slot.flowId}
+                slot={slot}
+                index={index}
+                now={now}
+                onCopy={onCopy}
+                onChange={(code) => setSlotCode(slot.flowId, code)}
+                onSubmit={() => onSubmitSlot(slot)}
+              />
+            ))}
           </div>
-        </div>
-      ) : null}
-
-      {step === 3 ? (
-        <div className="step-body">
-          <p className="label">步骤三 / 提交回执</p>
-          <h3 id="wizard-title">逐槽粘贴授权回执</h3>
-          <p className="step-lead">支持 code#state、Claude 回调 URL，或分两行粘贴 code 和 state。每个槽位独立提交。</p>
-          {activeSlots.length ? (
-            <div className="slot-cards">
-              {activeSlots.map((slot, index) => (
-                <SlotSubmitCard
-                  key={slot.flowId}
-                  slot={slot}
-                  index={index}
-                  now={now}
-                  onChange={(code) => setSlotCode(slot.flowId, code)}
-                  onSubmit={() => onSubmitSlot(slot)}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="empty-state">没有待提交的槽位。</p>
-          )}
-          <div className="wizard-actions">
-            <button className="secondary-button" type="button" onClick={onBackToStart}>
-              生成更多槽位
-            </button>
-            {doneCount ? (
+          {doneCount ? (
+            <div className="wizard-actions">
               <button className="secondary-button" type="button" onClick={onClearFinished}>
                 清理已完成（{doneCount}）
               </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -677,11 +665,144 @@ function WizardView({
   );
 }
 
-function StepItem({ number, label, current, done }: { number: number; label: string; current: boolean; done: boolean }) {
+function CustomProxyForm({
+  onAdd,
+  disabled,
+}: {
+  onAdd: (input: { name: string; protocol: string; host: string; port: number; username?: string; password?: string }) => Promise<{ ok: boolean; message: string }>;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [protocol, setProtocol] = useState("http");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function submit() {
+    const portNum = Number(port);
+    if (!host.trim() || !Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      setResult({ ok: false, message: "请填写有效的主机和端口（1–65535）。" });
+      return;
+    }
+    setBusy(true);
+    setResult(null);
+    const res = await onAdd({
+      name: name.trim(),
+      protocol,
+      host: host.trim(),
+      port: portNum,
+      username: username.trim() || undefined,
+      password: password || undefined,
+    });
+    setResult(res.message ? res : null);
+    setBusy(false);
+    if (res.ok) {
+      setHost("");
+      setPort("");
+      setUsername("");
+      setPassword("");
+      setName("");
+      setOpen(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button className="secondary-button" type="button" onClick={() => setOpen(true)} disabled={disabled}>
+        ＋ 添加自定义代理
+      </button>
+    );
+  }
+
   return (
-    <div className={`wizard-step ${current ? "is-current" : ""} ${done ? "is-done" : ""}`}>
-      <span>{done ? "✓" : number}</span>
-      <em>{label}</em>
+    <div className="custom-proxy">
+      <div className="custom-proxy-grid">
+        <select className="text-input" value={protocol} onChange={(event) => setProtocol(event.target.value)} disabled={busy} aria-label="协议">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+          <option value="socks5">SOCKS5</option>
+          <option value="socks5h">SOCKS5H</option>
+        </select>
+        <input className="text-input" value={host} onChange={(event) => setHost(event.target.value)} placeholder="主机 / IP" autoComplete="off" disabled={busy} aria-label="主机" />
+        <input className="text-input" value={port} onChange={(event) => setPort(event.target.value)} placeholder="端口" inputMode="numeric" disabled={busy} aria-label="端口" />
+        <input className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="名称（可选）" maxLength={80} disabled={busy} aria-label="名称" />
+        <input className="text-input" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="用户名（可选）" autoComplete="off" disabled={busy} aria-label="用户名" />
+        <input className="text-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="密码（可选）" autoComplete="new-password" disabled={busy} aria-label="密码" />
+      </div>
+      <div className="flow-actions">
+        <button className="oauth-button" type="button" onClick={submit} disabled={busy || !host.trim() || !port.trim()}>
+          {busy ? "创建中..." : "创建并选用"}
+        </button>
+        <button className="secondary-button" type="button" onClick={() => { setOpen(false); setResult(null); }} disabled={busy}>
+          收起
+        </button>
+      </div>
+      {result ? <p className={result.ok ? "slot-result is-ok" : "slot-result is-error"}>{result.message}</p> : null}
+    </div>
+  );
+}
+
+function SlotFlowCard({
+  slot,
+  index,
+  now,
+  onCopy,
+  onChange,
+  onSubmit,
+}: {
+  slot: Slot;
+  index: number;
+  now: number;
+  onCopy: (value: string) => void;
+  onChange: (code: string) => void;
+  onSubmit: () => void;
+}) {
+  const expired = isExpired(slot.expiresAt, now);
+  const submitting = slot.status === "submitting";
+  return (
+    <div className="flow-card">
+      <div className="flow-card-head">
+        <SlotBadge slot={slot} now={now} />
+        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
+      </div>
+      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>① 官方授权链接</label>
+      <input
+        id={`auth-url-${slot.flowId}`}
+        className="text-input auth-url-input"
+        value={slot.authUrl}
+        readOnly
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <div className="flow-actions">
+        <a className="oauth-button" href={slot.authUrl} target="_blank" rel="noreferrer" aria-disabled={expired}>
+          打开官方授权页 ↗
+        </a>
+        <button className="secondary-button" type="button" onClick={() => onCopy(slot.authUrl)}>
+          复制链接
+        </button>
+      </div>
+      <label className="field-label" htmlFor={`code-${slot.flowId}`}>② 授权回执（code#state 或回调 URL）</label>
+      <textarea
+        id={`code-${slot.flowId}`}
+        className="text-input textarea-input"
+        value={slot.code}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="粘贴完整的 code#state 或回调 URL"
+        rows={3}
+        disabled={submitting}
+      />
+      <div className="flow-actions">
+        <button className="oauth-button" type="button" onClick={onSubmit} disabled={submitting || !slot.code.trim()}>
+          {submitting ? "正在兑换并入池..." : "提交回执并创建账号"}
+        </button>
+      </div>
+      {slot.result ? (
+        <p className={slot.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>{slot.result}</p>
+      ) : null}
     </div>
   );
 }
@@ -716,48 +837,6 @@ function SlotAuthCard({ slot, index, now, onCopy }: { slot: Slot; index: number;
           复制链接
         </button>
       </div>
-    </div>
-  );
-}
-
-function SlotSubmitCard({
-  slot,
-  index,
-  now,
-  onChange,
-  onSubmit,
-}: {
-  slot: Slot;
-  index: number;
-  now: number;
-  onChange: (code: string) => void;
-  onSubmit: () => void;
-}) {
-  const submitting = slot.status === "submitting";
-  return (
-    <div className="flow-card">
-      <div className="flow-card-head">
-        <SlotBadge slot={slot} now={now} />
-        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
-      </div>
-      <label className="field-label" htmlFor={`code-${slot.flowId}`}>Authorization Code</label>
-      <textarea
-        id={`code-${slot.flowId}`}
-        className="text-input textarea-input"
-        value={slot.code}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="粘贴完整的 code#state 或回调 URL"
-        rows={3}
-        disabled={submitting}
-      />
-      <div className="flow-actions">
-        <button className="oauth-button" type="button" onClick={onSubmit} disabled={submitting || !slot.code.trim()}>
-          {submitting ? "正在兑换并入池..." : "提交回执并创建账号"}
-        </button>
-      </div>
-      {slot.result ? (
-        <p className={slot.status === "error" ? "slot-result is-error" : "slot-result is-ok"}>{slot.result}</p>
-      ) : null}
     </div>
   );
 }

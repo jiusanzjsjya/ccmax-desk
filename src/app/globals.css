@@ -1346,6 +1346,27 @@ select.text-input,
   margin-top: 4px;
 }
 
+.custom-proxy {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--fill-soft);
+}
+
+.custom-proxy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .custom-proxy-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .wizard-actions,
 .flow-actions {
   display: flex;

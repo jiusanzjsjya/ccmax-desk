@@ -26,7 +26,7 @@ export default function AdminLoginForm({ configured }: { configured: boolean }) 
       if (!response.ok) {
         setError(
           payload.error === "admin_not_configured"
-            ? "超级管理员账号尚未配置，请在 .env.local 设置 SUPERADMIN_PASSWORD。"
+            ? "账号尚未配置，请在 .env.local 设置 SUPERADMIN_USERNAME / SUPERADMIN_PASSWORD。"
             : "登录名或密码不正确，或账号已停用。",
         );
         return;
@@ -50,7 +50,7 @@ export default function AdminLoginForm({ configured }: { configured: boolean }) 
         type="text"
         value={username}
         onChange={(event) => setUsername(event.target.value)}
-        placeholder="超级管理员或已分配的账号"
+        placeholder="登录名"
         autoComplete="username"
         disabled={loading}
       />
@@ -67,11 +67,11 @@ export default function AdminLoginForm({ configured }: { configured: boolean }) 
       />
 
       <button className="oauth-button" type="submit" disabled={loading || !username || !password}>
-        {loading ? "正在验证..." : "进入管理员工作台"}
+        {loading ? "正在验证..." : "登录"}
       </button>
       {error ? <div className="error-box">{error}</div> : null}
       {!configured ? (
-        <p className="microcopy">超级管理员账号尚未配置：在 .env.local 设置 SUPERADMIN_USERNAME / SUPERADMIN_PASSWORD。</p>
+        <p className="microcopy">账号尚未配置：在 .env.local 设置 SUPERADMIN_USERNAME / SUPERADMIN_PASSWORD。</p>
       ) : (
         <p className="microcopy">账号密码只在本项目服务端校验，不会发送给 Sub2API。</p>
       )}

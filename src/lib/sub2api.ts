@@ -144,6 +144,38 @@ export async function testProxy(id: number): Promise<ProxyTestResult> {
   };
 }
 
+export type CreateProxyInput = {
+  name: string;
+  /** VERIFIED enum (Sub2API v0.1.180): http | https | socks5 | socks5h. */
+  protocol: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+};
+
+/**
+ * Create a stored proxy in Sub2API (POST /admin/proxies) and return it (with id).
+ * Sub2API only accepts a proxy by id — there is no inline/ad-hoc proxy on the
+ * account/OAuth endpoints — so a "custom proxy" must be created here first, then
+ * its id passed as proxy_id when generating the auth URL.
+ */
+export async function createProxy(input: CreateProxyInput): Promise<ProxySummary> {
+  const config = await getSub2ApiConfig();
+  const result = await request<Record<string, unknown>>(config, "/api/v1/admin/proxies", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      protocol: input.protocol,
+      host: input.host,
+      port: input.port,
+      ...(input.username ? { username: input.username } : {}),
+      ...(input.password ? { password: input.password } : {}),
+    }),
+  });
+  return summarizeProxy(result);
+}
+
 function summarizeProxy(row: Record<string, unknown>): ProxySummary {
   return {
     id: (row.id as number | string) ?? "",
