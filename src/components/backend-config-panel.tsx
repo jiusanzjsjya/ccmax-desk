@@ -44,6 +44,24 @@ type TokenInputs = {
 
 const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {} };
 
+/**
+ * A client-side gateway id. `crypto.randomUUID` only exists in a secure context
+ * (HTTPS or localhost); on a plain-HTTP IP deployment it is undefined, so fall
+ * back to getRandomValues (available everywhere) to build a v4 UUID. Store merge
+ * only needs the id to be unique, so the exact scheme doesn't matter.
+ */
+function newGatewayId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export default function BackendConfigPanel() {
   const router = useRouter();
   const [config, setConfig] = useState<BackendConfig | null>(null);
@@ -112,7 +130,7 @@ export default function BackendConfigPanel() {
   }
 
   function addGateway() {
-    const id = crypto.randomUUID();
+    const id = newGatewayId();
     setConfig((current) =>
       current
         ? {
