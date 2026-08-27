@@ -1429,6 +1429,351 @@ select.text-input,
   flex-wrap: wrap;
 }
 
+/* ============================ Account pool ============================ */
+
+.pool {
+  display: grid;
+  gap: 18px;
+}
+
+.pool-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.pool-heading h3 {
+  margin: 6px 0 0;
+  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.pool-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pool-auto {
+  min-height: 0;
+  border-top: 0;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pool-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.stat-card .v .dot.muted {
+  background: var(--faint);
+  border-color: var(--faint);
+}
+
+.pool-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.pool-view {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+}
+
+.pool-view button {
+  min-height: 40px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pool-view button.is-active {
+  background: var(--fill-strong);
+  color: var(--on-ink);
+}
+
+.pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.pool-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.pool-card-top {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.pool-card-top .avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.pool-id {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pool-id strong {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-id span {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pool-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pool-tag.is-faint {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--faint);
+}
+
+.pool-tag.is-group {
+  border-color: var(--line-2);
+  background: var(--fill-soft);
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.pool-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pool-cooldown {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 0.68rem;
+}
+
+.pool-meters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.pool-meter {
+  display: grid;
+  gap: 5px;
+}
+
+.pool-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pool-meter-head span {
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pool-meter-head b {
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.pool-meter-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--fill-soft);
+}
+
+.pool-meter-track i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+.pool-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+}
+
+.pool-table {
+  display: grid;
+  gap: 6px;
+}
+
+.pool-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) 0.9fr 0.8fr 1fr 1fr 1fr 0.6fr;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+}
+
+.pool-row.is-head {
+  padding: 0 14px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--faint);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pool-row-id {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-family: var(--font-body);
+}
+
+.pool-row-id strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-row-id em {
+  overflow: hidden;
+  color: var(--faint);
+  font-style: normal;
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-row .account-status {
+  font-style: normal;
+  font-size: 0.62rem;
+}
+
+.pool-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+}
+
+.pool-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pool-page {
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .pool-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pool-filters .text-input:first-child,
+  .pool-view {
+    grid-column: 1 / -1;
+  }
+
+  .pool-row,
+  .pool-row.is-head {
+    grid-template-columns: minmax(0, 1.6fr) 0.8fr 1fr;
+  }
+
+  .pool-row > span:nth-child(4),
+  .pool-row > span:nth-child(7) {
+    display: none;
+  }
+}
+
 /* ============================ Login ============================ */
 
 .shell {

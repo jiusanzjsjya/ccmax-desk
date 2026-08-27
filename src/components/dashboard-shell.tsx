@@ -3,13 +3,14 @@
 import { useState } from "react";
 
 import AccountManagementPanel from "@/components/account-management-panel";
+import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
 import ThemeToggle from "@/components/theme-toggle";
 import type { Role } from "@/lib/roles";
 
-type SectionId = "overview" | "provisioning" | "backends" | "access";
+type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access";
 
 type DashboardShellProps = {
   role: Role;
@@ -50,8 +51,17 @@ const NAV: NavItem[] = [
     visible: () => true,
   },
   {
-    id: "backends",
+    id: "pool",
     index: "02",
+    label: "账号池统揽",
+    hint: "调度 · 健康 · 掉权",
+    title: "账号池统揽",
+    subtitle: "OAuth 账号调度与健康 · 额度、并发、掉权状态",
+    visible: (p) => p.canViewAccountPool,
+  },
+  {
+    id: "backends",
+    index: "03",
     label: "多平台后端",
     hint: "目标平台与网关",
     title: "多平台后端",
@@ -60,7 +70,7 @@ const NAV: NavItem[] = [
   },
   {
     id: "access",
-    index: "03",
+    index: "04",
     label: "账号与权限",
     hint: "账号 · 开关 · 审计",
     title: "账号与权限",
@@ -137,6 +147,9 @@ export default function DashboardShell(props: DashboardShellProps) {
                 canViewAccountPool={props.canViewAccountPool}
               />
             ) : null}
+            {active === "pool" && props.canViewAccountPool ? (
+              <AccountPoolPanel sub2ApiConfigured={props.sub2ApiConfigured} />
+            ) : null}
             {active === "backends" && props.role === "superadmin" ? <BackendConfigPanel /> : null}
             {active === "access" && props.role !== "user" ? (
               <AccountManagementPanel role={props.role as Exclude<Role, "user">} />
@@ -211,16 +224,23 @@ function Overview(props: DashboardShellProps & { onJump: (id: SectionId) => void
           <strong>授权上号</strong>
           <span>选目标平台，生成授权槽位，完成官方授权后提交回执入池。</span>
         </button>
+        {props.canViewAccountPool ? (
+          <button type="button" className="quick-card" onClick={() => onJump("pool")}>
+            <span className="qk">02 / 账号池</span>
+            <strong>账号池统揽</strong>
+            <span>查看已入池账号的调度、额度、并发与掉权状态。</span>
+          </button>
+        ) : null}
         {role === "superadmin" ? (
           <button type="button" className="quick-card" onClick={() => onJump("backends")}>
-            <span className="qk">02 / 平台</span>
+            <span className="qk">03 / 平台</span>
             <strong>多平台后端</strong>
             <span>配置 Sub2API / new-api / one-api，或添加多个自建网关。</span>
           </button>
         ) : null}
         {role !== "user" ? (
           <button type="button" className="quick-card" onClick={() => onJump("access")}>
-            <span className="qk">03 / 权限</span>
+            <span className="qk">04 / 权限</span>
             <strong>账号与权限</strong>
             <span>创建本地账号、调整系统开关，查看审计记录。</span>
           </button>
