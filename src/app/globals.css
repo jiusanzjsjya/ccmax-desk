@@ -1030,20 +1030,13 @@ select.text-input,
   line-height: 1.55;
 }
 
-.managed-users,
-.audit-panel {
+.managed-users {
   display: grid;
   gap: 12px;
   padding-top: 6px;
 }
 
-.audit-panel {
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
-}
-
-.managed-user-list,
-.audit-list {
+.managed-user-list {
   display: grid;
   gap: 8px;
 }
@@ -1108,31 +1101,196 @@ select.text-input,
   font-size: 0.68rem;
 }
 
-.audit-row {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+/* ============================ System log ============================ */
+
+.log-toolbar {
+  display: flex;
   align-items: center;
-  min-width: 0;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-  color: var(--faint);
-  font-family: var(--font-code);
-  font-size: 0.7rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-.audit-row strong,
-.audit-row code {
-  overflow: hidden;
-  color: var(--ink);
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
   font-family: var(--font-code);
-  font-size: 0.68rem;
-  text-overflow: ellipsis;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.log-chip:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.log-chip.is-active {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.log-chip-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--fill-soft);
+  color: var(--faint);
+  font-size: 0.62rem;
+  line-height: 16px;
+  text-align: center;
+}
+
+.log-chip.is-active .log-chip-count {
+  background: var(--card);
+  color: var(--accent);
+}
+
+.log-search {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.log-list {
+  display: grid;
+  gap: 8px;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card);
+}
+
+.log-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-width: 0;
+}
+
+.log-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-top: 1px;
+  padding: 0 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 0.64rem;
+  font-weight: 600;
+}
+
+.log-cat-auth {
+  border-color: color-mix(in srgb, #4f9dde 55%, var(--line-2));
+  color: #4f9dde;
+}
+
+.log-cat-account {
+  border-color: color-mix(in srgb, #59b98a 55%, var(--line-2));
+  color: #59b98a;
+}
+
+.log-cat-system {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.log-cat-backend {
+  border-color: color-mix(in srgb, #a884d8 55%, var(--line-2));
+  color: #a884d8;
+}
+
+.log-cat-other {
+  border-color: var(--line-2);
+  color: var(--faint);
+}
+
+.log-row-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.log-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.log-line strong {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 99px;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.audit-row code {
+.log-action {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.log-code {
   color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+}
+
+.log-details {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+  white-space: nowrap;
 }
 
 /* ============================ Provisioning workspace ============================ */
@@ -2404,8 +2562,10 @@ button:active {
     gap: 14px;
   }
 
-  .audit-row {
-    grid-template-columns: 1fr 1fr;
+  .log-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .audit-row code {

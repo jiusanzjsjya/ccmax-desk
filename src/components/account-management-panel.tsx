@@ -29,16 +29,6 @@ type Settings = {
   scopeAccountPoolByOwner: boolean;
 };
 
-type AuditEvent = {
-  id: string;
-  actorName: string;
-  actorRole: Role;
-  action: string;
-  targetId?: string;
-  details?: string;
-  createdAt: string;
-};
-
 const emptySettings: Settings = {
   provisioningEnabled: true,
   allowAdminCreateUsers: true,
@@ -52,7 +42,6 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
   const router = useRouter();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [settings, setSettings] = useState<Settings>(emptySettings);
-  const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -87,19 +76,12 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
 
       setAccounts(payload.items);
       if (payload.settings) setSettings(payload.settings);
-
-      if (isSuperadmin) {
-        const auditResponse = await fetch("/api/admin/audit", { cache: "no-store" });
-        const auditPayload = (await auditResponse.json().catch(() => ({}))) as { items?: AuditEvent[] };
-        if (redirectOnUnauthorized(auditResponse, redirectToLogin)) return;
-        if (auditResponse.ok && auditPayload.items) setAudit(auditPayload.items);
-      }
     } catch {
       setError("无法读取本地账号管理数据。");
     } finally {
       setLoading(false);
     }
-  }, [isSuperadmin, redirectToLogin]);
+  }, [redirectToLogin]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
@@ -385,27 +367,6 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
         )}
       </div>
 
-      {isSuperadmin ? (
-        <div className="audit-panel">
-          <div className="management-section-heading">
-            <div>
-              <p className="management-kicker">审计记录</p>
-              <p className="management-help">记录登录、账号变更和系统开关，不记录密码或 OAuth token。</p>
-            </div>
-          </div>
-          {audit.length ? (
-            <div className="audit-list">
-              {audit.slice(0, 8).map((event) => (
-                <div className="audit-row" key={event.id}>
-                  <span>{formatDate(event.createdAt)}</span>
-                  <strong>{event.actorName}</strong>
-                  <code>{event.action}</code>
-                </div>
-              ))}
-            </div>
-          ) : <p className="empty-state">暂无审计记录。</p>}
-        </div>
-      ) : null}
     </section>
   );
 }

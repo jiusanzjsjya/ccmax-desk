@@ -7,10 +7,11 @@ import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
+import SystemLogPanel from "@/components/system-log-panel";
 import ThemeToggle from "@/components/theme-toggle";
 import type { Role } from "@/lib/roles";
 
-type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access";
+type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access" | "logs";
 
 type DashboardShellProps = {
   role: Role;
@@ -72,10 +73,19 @@ const NAV: NavItem[] = [
     id: "access",
     index: "04",
     label: "账号与权限",
-    hint: "账号 · 开关 · 审计",
+    hint: "账号 · 系统开关",
     title: "账号与权限",
-    subtitle: "本地账号、系统开关与审计记录",
+    subtitle: "本地账号与系统开关",
     visible: (p) => p.role !== "user",
+  },
+  {
+    id: "logs",
+    index: "05",
+    label: "系统日志",
+    hint: "操作审计 · 留痕",
+    title: "系统日志",
+    subtitle: "登录、账号、系统开关与后端配置的操作审计",
+    visible: (p) => p.role === "superadmin",
   },
 ];
 
@@ -154,6 +164,7 @@ export default function DashboardShell(props: DashboardShellProps) {
             {active === "access" && props.role !== "user" ? (
               <AccountManagementPanel role={props.role as Exclude<Role, "user">} />
             ) : null}
+            {active === "logs" && props.role === "superadmin" ? <SystemLogPanel /> : null}
           </div>
         </main>
       </div>
@@ -242,7 +253,14 @@ function Overview(props: DashboardShellProps & { onJump: (id: SectionId) => void
           <button type="button" className="quick-card" onClick={() => onJump("access")}>
             <span className="qk">04 / 权限</span>
             <strong>账号与权限</strong>
-            <span>创建本地账号、调整系统开关，查看审计记录。</span>
+            <span>创建本地账号、调整系统开关与访问权限。</span>
+          </button>
+        ) : null}
+        {role === "superadmin" ? (
+          <button type="button" className="quick-card" onClick={() => onJump("logs")}>
+            <span className="qk">05 / 日志</span>
+            <strong>系统日志</strong>
+            <span>登录、账号变更、系统开关与后端配置的操作审计留痕。</span>
           </button>
         ) : null}
       </div>
