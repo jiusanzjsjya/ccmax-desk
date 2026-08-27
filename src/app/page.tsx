@@ -1,4 +1,5 @@
 import AdminLoginForm from "@/components/admin-login-form";
+import ThemeToggle from "@/components/theme-toggle";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { env } from "@/lib/env";
 import { getCurrentSession } from "@/lib/session";
@@ -46,6 +47,9 @@ export default async function Home() {
 
         <div className="form-side">
           <div className="form-card wide">
+            <div className="login-topbar">
+              <ThemeToggle />
+            </div>
             <>
               <p className="label">受保护入口</p>
               <h2>开始授权</h2>

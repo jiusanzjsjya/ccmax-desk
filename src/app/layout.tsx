@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Sora } from "next/font/google";
 
 import "./globals.css";
 
-const displayFont = Space_Grotesk({
+const displayFont = Sora({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-display",
   display: "swap",
 });
@@ -17,13 +18,19 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CCMax 登录验证台",
-  description: "CCMax Sub2 OAuth 登录验证与账号工作台",
+  title: "CCMax 控制台",
+  description: "CCMax 授权上号与多平台接入控制台",
 };
+
+// Applies the saved theme before first paint so there is no light/dark flash.
+const themeScript = `(function(){try{var t=localStorage.getItem("ccmax-theme");if(t==="light"||t==="dark"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className={`${displayFont.variable} ${monoFont.variable}`}>{children}</body>
     </html>
   );
