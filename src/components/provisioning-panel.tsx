@@ -561,6 +561,7 @@ function WizardView({
 
   return (
     <section className="wizard-panel" aria-labelledby="wizard-title">
+      <div className="wizard-columns">
       <div className="step-body">
         <p className="label">{t("授权上号")}</p>
         <h3 id="wizard-title">{t("准备 Claude Max 账号")}</h3>
@@ -661,33 +662,38 @@ function WizardView({
         </div>
       </div>
 
-      {activeSlots.length ? (
-        <div className="step-body">
-          <p className="label">{t("授权与回执")}</p>
-          <h3>{t("完成授权并提交")}</h3>
-          <p className="step-lead">{t("逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。")}</p>
-          <div className="slot-cards">
-            {activeSlots.map((slot, index) => (
-              <SlotFlowCard
-                key={slot.flowId}
-                slot={slot}
-                index={index}
-                now={now}
-                onCopy={onCopy}
-                onChange={(code) => setSlotCode(slot.flowId, code)}
-                onSubmit={() => onSubmitSlot(slot)}
-              />
-            ))}
-          </div>
-          {doneCount ? (
-            <div className="wizard-actions">
-              <button className="secondary-button" type="button" onClick={onClearFinished}>
-                {t("清理已完成（{n}）", { n: doneCount })}
-              </button>
+      <div className="step-body">
+        <p className="label">{t("授权与回执")}</p>
+        <h3>{t("完成授权并提交")}</h3>
+        {activeSlots.length ? (
+          <>
+            <p className="step-lead">{t("逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。")}</p>
+            <div className="slot-cards">
+              {activeSlots.map((slot, index) => (
+                <SlotFlowCard
+                  key={slot.flowId}
+                  slot={slot}
+                  index={index}
+                  now={now}
+                  onCopy={onCopy}
+                  onChange={(code) => setSlotCode(slot.flowId, code)}
+                  onSubmit={() => onSubmitSlot(slot)}
+                />
+              ))}
             </div>
-          ) : null}
-        </div>
-      ) : null}
+            {doneCount ? (
+              <div className="wizard-actions">
+                <button className="secondary-button" type="button" onClick={onClearFinished}>
+                  {t("清理已完成（{n}）", { n: doneCount })}
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="step-lead is-placeholder">{t("生成槽位后，在此完成官方授权并提交回执入池。")}</p>
+        )}
+      </div>
+      </div>
 
       {message && !error ? <div className="status-box" role="status">{message}</div> : null}
       {error ? <div className="error-box" role="alert">{error}</div> : null}

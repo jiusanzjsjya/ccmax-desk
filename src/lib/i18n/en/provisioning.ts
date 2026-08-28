@@ -67,6 +67,8 @@ export const provisioning: Record<string, string> = {
   "逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。":
     "Open each official authorization link, sign in and consent, then paste the success page's code#state (or callback URL) back into its slot and submit. Each slot is pooled independently.",
   "清理已完成（{n}）": "Clear finished ({n})",
+  "生成槽位后，在此完成官方授权并提交回执入池。":
+    "After generating slots, complete official authorization here and submit the receipts to the pool.",
 
   // Proxy parsing
   "请粘贴代理地址。": "Paste a proxy address.",

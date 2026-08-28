@@ -1498,6 +1498,25 @@ select.text-input,
   line-height: 1.7;
 }
 
+/* Wizard: generate block (left) and receipt block (right) are always side by
+   side; the right column shows a placeholder until slots are generated. */
+.wizard-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.step-lead.is-placeholder {
+  color: var(--faint);
+}
+
+@media (max-width: 860px) {
+  .wizard-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .advanced-fields {
   display: grid;
   gap: 10px;
