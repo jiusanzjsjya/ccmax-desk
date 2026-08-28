@@ -33,6 +33,7 @@ export const access: Record<string, string> = {
   "允许普通用户使用自建代理": "Allow regular users to use custom proxies",
   "允许普通用户选择目标平台": "Allow regular users to choose the target platform",
   "允许普通用户结算台账记账": "Allow regular users to write to the settlement ledger",
+  "启用强制前缀": "Enable required prefix",
 
   // Local account list
   "本地账号": "Local accounts",
@@ -77,4 +78,30 @@ export const access: Record<string, string> = {
     "Your role or the system switches don't allow this action.",
   "该登录名已存在，请换一个。": "That username already exists; pick another.",
   "账号管理请求失败。": "Account management request failed.",
+
+  // Prefix management
+  "前缀管理": "Prefix management",
+  "管理强制上号前缀，超管可增删改任意前缀。":
+    "Manage the required onboarding prefixes; a superadmin can add, edit, and delete any prefix.",
+  "管理强制上号前缀，可添加与修改，仅能删除本人添加的。":
+    "Manage the required onboarding prefixes; you can add and edit any, but delete only the ones you added.",
+  "新前缀，例如 Allen": "New prefix, e.g. Allen",
+  "新前缀": "New prefix",
+  "添加": "Add",
+  "修改": "Edit",
+  "删除": "Delete",
+  "还没有前缀。添加一个供上号时选择。":
+    "No prefixes yet. Add one so it can be selected during onboarding.",
+  "该前缀已存在，请换一个。": "That prefix already exists; pick another.",
+  "前缀 {value} 已添加。": "Prefix {value} added.",
+  "修改前缀（当前：{value}）": "Edit prefix (current: {value})",
+  "前缀已更新为 {value}。": "Prefix updated to {value}.",
+  "确定删除前缀 {value} 吗？": "Delete prefix {value}?",
+  "前缀 {value} 已删除。": "Prefix {value} deleted.",
+  "添加前缀失败，请检查本地服务状态。":
+    "Failed to add prefix; check the local service status.",
+  "更新前缀失败，请检查本地服务状态。":
+    "Failed to update prefix; check the local service status.",
+  "删除前缀失败，请检查本地服务状态。":
+    "Failed to delete prefix; check the local service status.",
 };

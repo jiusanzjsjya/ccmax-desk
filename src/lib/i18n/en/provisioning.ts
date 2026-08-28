@@ -53,6 +53,11 @@ export const provisioning: Record<string, string> = {
   "生成槽位数（1–{max}）": "Number of slots (1–{max})",
   "批次备注（可选）": "Batch note (optional)",
   "例如 Allen-0826，不要填写 token": "e.g. Allen-0826 — do not paste a token",
+  "例如 0826，不要填写 token": "e.g. 0826 — do not paste a token",
+  "强制前缀（必选）": "Required prefix",
+  "请选择前缀": "Select a prefix",
+  "尚无可用前缀，请联系管理员在「账号与权限」中添加。":
+    "No prefixes available yet — ask an administrator to add one under Accounts & Access.",
   "注册国家": "Registration country",
   "搜索国家/地区，如 美国 或 US": "Search country/region, e.g. US",
   "搜索注册国家": "Search registration country",

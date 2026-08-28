@@ -21,6 +21,8 @@ const completeSchema = z.object({
   // Target account pool ref ("sub2api" | "newapi" | "oneapi" | "custom:<id>").
   // Defaults to the superadmin's default backend when omitted.
   backend: z.string().trim().max(80).optional(),
+  // Selected onboarding prefix; required (and prepended to notes) when the switch is on.
+  prefixId: z.string().uuid().optional(),
   groupIds: z.array(z.number().int().positive()).max(50).default([]),
 });
 
@@ -44,6 +46,19 @@ export async function POST(request: Request) {
 
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // Forced prefix: when the switch is on, a valid prefix must be selected and is
+  // prepended to the batch note. Resolve server-side so the value is authoritative.
+  let prefixValue: string | undefined;
+  if (context.store.settings.forcedPrefixEnabled) {
+    const prefix = parsed.data.prefixId
+      ? context.store.accountPrefixes.find((item) => item.id === parsed.data.prefixId)
+      : undefined;
+    if (!prefix) {
+      return NextResponse.json({ error: "prefix_required" }, { status: 400 });
+    }
+    prefixValue = prefix.value;
   }
 
   // A user without select permission is locked to the default backend: drop any
@@ -82,7 +97,7 @@ export async function POST(request: Request) {
     const backend = await resolveBackend(targetBackend);
     const account = await backend.createClaudeAccount({
       name: accountName,
-      notes: composeNotes(parsed.data.country, parsed.data.notes),
+      notes: composeNotes(parsed.data.country, applyPrefix(prefixValue, parsed.data.notes)),
       tokenInfo,
       groupIds: parsed.data.groupIds,
     });
@@ -111,6 +126,13 @@ export async function POST(request: Request) {
 
 function buildDefaultName(tokenInfo: { email_address?: string; account_uuid?: string }, flowId: string) {
   return `Claude Code Max - ${tokenInfo.email_address || tokenInfo.account_uuid || flowId.slice(0, 8)}`;
+}
+
+/** Prepend the forced prefix to the batch note (e.g. "Allen" + "0826" -> "Allen-0826"). */
+function applyPrefix(prefix?: string, notes?: string) {
+  if (!prefix) return notes;
+  const rest = notes?.trim();
+  return rest ? `${prefix}-${rest}` : prefix;
 }
 
 /** Country is a local label only; prepend it to notes as a tag when present. */

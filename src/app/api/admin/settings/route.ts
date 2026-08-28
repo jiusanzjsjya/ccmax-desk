@@ -17,6 +17,7 @@ const settingsSchema = z.object({
   allowUserCustomProxy: z.boolean().optional(),
   allowUserSelectBackend: z.boolean().optional(),
   allowUserLedgerWrite: z.boolean().optional(),
+  forcedPrefixEnabled: z.boolean().optional(),
 });
 
 export async function GET() {

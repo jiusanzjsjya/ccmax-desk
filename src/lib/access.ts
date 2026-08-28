@@ -1,4 +1,4 @@
-import { getAccountStore, findLocalAccountById, type LocalAccountStore } from "@/lib/account-store";
+import { getAccountStore, findLocalAccountById, type AccountPrefix, type LocalAccountStore } from "@/lib/account-store";
 import { getCurrentSession, type AdminSession } from "@/lib/session";
 import type { Role } from "@/lib/roles";
 
@@ -117,4 +117,22 @@ export function canWriteLedger(context: AccessContext, targetUserId: string): bo
 /** Whether the viewer may write any ledger entry at all (drives the panel's "new entry" affordance). */
 export function canWriteAnyLedger(context: AccessContext): boolean {
   return context.role !== "user" || context.store.settings.allowUserLedgerWrite;
+}
+
+/**
+ * Whether the viewer may manage (add/rename) onboarding prefixes. admin and
+ * superadmin may; a regular `user` may only select an existing prefix.
+ */
+export function canManagePrefixes(context: AccessContext): boolean {
+  return context.role !== "user";
+}
+
+/**
+ * Whether the viewer may delete a specific prefix. superadmin may delete any;
+ * an admin may delete only the ones they created; a `user` may not delete.
+ */
+export function canDeletePrefix(context: AccessContext, prefix: AccountPrefix): boolean {
+  if (context.role === "superadmin") return true;
+  if (context.role === "admin") return prefix.createdBy === context.session.userId;
+  return false;
 }

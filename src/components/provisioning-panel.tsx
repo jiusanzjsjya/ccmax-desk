@@ -81,6 +81,9 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
     status: "idle",
     message: "",
   });
+  const [prefixEnabled, setPrefixEnabled] = useState(false);
+  const [prefixes, setPrefixes] = useState<{ id: string; value: string }[]>([]);
+  const [prefixId, setPrefixId] = useState("");
 
   const configured = adminConfigured && sub2ApiConfigured;
 
@@ -147,6 +150,31 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         if (payload.items?.length) setProxies(payload.items);
       } catch {
         // Proxy selection is optional; ignore failures.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load onboarding prefixes + whether a prefix is mandatory before generating.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/provisioning/prefixes", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as {
+          enabled?: boolean;
+          items?: { id: string; value: string }[];
+        };
+        if (cancelled) return;
+        setPrefixEnabled(Boolean(payload.enabled));
+        if (payload.items) setPrefixes(payload.items);
+      } catch {
+        // Prefix selection only gates onboarding when enabled; ignore failures.
       }
     })();
 
@@ -316,6 +344,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           code: normalizedCode,
           notes: notes.trim() || undefined,
           country: country.trim() || undefined,
+          ...(prefixId ? { prefixId } : {}),
           ...(selectedBackend ? { backend: selectedBackend } : {}),
         }),
       });
@@ -448,6 +477,10 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           proxyTest={proxyTest}
           country={country}
           setCountry={setCountry}
+          prefixEnabled={prefixEnabled}
+          prefixes={prefixes}
+          prefixId={prefixId}
+          setPrefixId={setPrefixId}
         />
       )}
 
@@ -515,6 +548,10 @@ function WizardView({
   proxyTest,
   country,
   setCountry,
+  prefixEnabled,
+  prefixes,
+  prefixId,
+  setPrefixId,
 }: {
   slots: Slot[];
   activeSlots: Slot[];
@@ -542,6 +579,10 @@ function WizardView({
   proxyTest: { status: "idle" | "testing" | "ok" | "error"; message: string };
   country: string;
   setCountry: (value: string) => void;
+  prefixEnabled: boolean;
+  prefixes: { id: string; value: string }[];
+  prefixId: string;
+  setPrefixId: (value: string) => void;
 }) {
   const { t, locale } = useI18n();
   const doneCount = slots.filter((slot) => slot.status === "done").length;
@@ -581,15 +622,50 @@ function WizardView({
             disabled={loading}
           />
           <label className="field-label" htmlFor="batch-notes">{t("批次备注（可选）")}</label>
-          <input
-            id="batch-notes"
-            className="text-input"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder={t("例如 Allen-0826，不要填写 token")}
-            maxLength={500}
-            disabled={loading}
-          />
+          {prefixEnabled && prefixes.length ? (
+            // Forced prefix on: the prefix dropdown is glued to the left of the note
+            // input and joined with "-", so the row reads as the final note (Allen-0826).
+            <div className="prefix-note-group">
+              <select
+                id="batch-prefix"
+                className="text-input prefix-note-select"
+                value={prefixId}
+                onChange={(event) => setPrefixId(event.target.value)}
+                disabled={loading}
+                aria-label={t("强制前缀（必选）")}
+              >
+                <option value="">{t("请选择前缀")}</option>
+                {prefixes.map((item) => (
+                  <option key={item.id} value={item.id}>{item.value}</option>
+                ))}
+              </select>
+              <span className="prefix-note-join" aria-hidden="true">-</span>
+              <input
+                id="batch-notes"
+                className="text-input prefix-note-input"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder={t("例如 0826，不要填写 token")}
+                maxLength={500}
+                disabled={loading}
+              />
+            </div>
+          ) : (
+            <>
+              <input
+                id="batch-notes"
+                className="text-input"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder={t("例如 Allen-0826，不要填写 token")}
+                maxLength={500}
+                disabled={loading}
+              />
+              {prefixEnabled ? (
+                <p className="step-lead is-placeholder">{t("尚无可用前缀，请联系管理员在「账号与权限」中添加。")}</p>
+              ) : null}
+            </>
+          )}
           <label className="field-label" htmlFor="batch-country-search">{t("注册国家")}</label>
           <input
             id="batch-country-search"
@@ -651,7 +727,7 @@ function WizardView({
           ) : null}
         </div>
         <div className="wizard-actions">
-          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading}>
+          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading || (prefixEnabled && !prefixId)}>
             {loading ? t("正在生成...") : t("生成 {n} 个授权槽位", { n: batchCount })}
           </button>
           {activeSlots.length ? (

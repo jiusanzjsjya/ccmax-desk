@@ -1101,6 +1101,79 @@ select.text-input,
   font-size: 0.68rem;
 }
 
+/* ============================ Prefix management ============================ */
+
+.prefix-manager {
+  gap: 12px;
+}
+
+.prefix-manager > div:first-child {
+  margin-bottom: 0;
+}
+
+.prefix-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prefix-add .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.prefix-add .secondary-button {
+  flex-shrink: 0;
+}
+
+.prefix-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prefix-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card);
+}
+
+.prefix-value {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.prefix-owner {
+  margin-left: auto;
+  overflow-wrap: anywhere;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+  text-align: right;
+}
+
+.prefix-row-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.prefix-row-actions .compact-button {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 0.68rem;
+}
+
 /* ============================ System log ============================ */
 
 .log-toolbar {
@@ -1509,6 +1582,43 @@ select.text-input,
 
 .step-lead.is-placeholder {
   color: var(--faint);
+}
+
+/* Forced prefix glued to the left of the batch note, joined with "-", so the
+   row reads as the final note (Allen-0826). */
+.prefix-note-group {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.prefix-note-select {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 45%;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.prefix-note-join {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
+  background: var(--fill-soft);
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.prefix-note-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 @media (max-width: 860px) {

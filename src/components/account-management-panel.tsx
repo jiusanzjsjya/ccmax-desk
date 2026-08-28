@@ -32,6 +32,17 @@ type Settings = {
   allowUserCustomProxy: boolean;
   allowUserSelectBackend: boolean;
   allowUserLedgerWrite: boolean;
+  forcedPrefixEnabled: boolean;
+};
+
+type PrefixItem = {
+  id: string;
+  value: string;
+  createdBy: string;
+  createdByName: string;
+  createdByRole: Role;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const emptySettings: Settings = {
@@ -45,6 +56,7 @@ const emptySettings: Settings = {
   allowUserCustomProxy: true,
   allowUserSelectBackend: true,
   allowUserLedgerWrite: false,
+  forcedPrefixEnabled: false,
 };
 
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
@@ -52,6 +64,9 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
   const router = useRouter();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [settings, setSettings] = useState<Settings>(emptySettings);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [prefixes, setPrefixes] = useState<PrefixItem[]>([]);
+  const [newPrefix, setNewPrefix] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -76,6 +91,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as {
         items?: ManagedAccount[];
         settings?: Settings;
+        currentUser?: { id: string };
         error?: string;
       };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
@@ -86,6 +102,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
 
       setAccounts(payload.items);
       if (payload.settings) setSettings(payload.settings);
+      if (payload.currentUser) setCurrentUserId(payload.currentUser.id);
     } catch {
       setError(t("无法读取本地账号管理数据。"));
     } finally {
@@ -93,10 +110,107 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }, [redirectToLogin, t]);
 
+  const refreshPrefixes = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/prefixes", { cache: "no-store" });
+      const payload = (await response.json().catch(() => ({}))) as { items?: PrefixItem[] };
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
+      if (response.ok && payload.items) setPrefixes(payload.items);
+    } catch {
+      // Prefix list is best-effort; the management block just shows empty on failure.
+    }
+  }, [redirectToLogin]);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setTimeout(() => {
+      void refresh();
+      void refreshPrefixes();
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [refresh]);
+  }, [refresh, refreshPrefixes]);
+
+  async function addPrefix(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = newPrefix.trim();
+    if (!value) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/prefixes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
+      if (!response.ok) {
+        setError(response.status === 409 ? t("该前缀已存在，请换一个。") : t(readManagementError(response.status, payload.error)));
+        return;
+      }
+      setNewPrefix("");
+      setMessage(t("前缀 {value} 已添加。", { value }));
+      void refreshPrefixes();
+    } catch {
+      setError(t("添加前缀失败，请检查本地服务状态。"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function renamePrefix(prefix: PrefixItem) {
+    const next = window.prompt(t("修改前缀（当前：{value}）", { value: prefix.value }), prefix.value);
+    if (next === null) return;
+    const value = next.trim();
+    if (!value || value === prefix.value) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/prefixes/${prefix.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
+      if (!response.ok) {
+        setError(response.status === 409 ? t("该前缀已存在，请换一个。") : t(readManagementError(response.status, payload.error)));
+        return;
+      }
+      setMessage(t("前缀已更新为 {value}。", { value }));
+      void refreshPrefixes();
+    } catch {
+      setError(t("更新前缀失败，请检查本地服务状态。"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removePrefix(prefix: PrefixItem) {
+    if (!window.confirm(t("确定删除前缀 {value} 吗？", { value: prefix.value }))) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/prefixes/${prefix.id}`, { method: "DELETE" });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (redirectOnUnauthorized(response, redirectToLogin)) return;
+      if (!response.ok) {
+        setError(t(readManagementError(response.status, payload.error)));
+        return;
+      }
+      setMessage(t("前缀 {value} 已删除。", { value: prefix.value }));
+      void refreshPrefixes();
+    } catch {
+      setError(t("删除前缀失败，请检查本地服务状态。"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function createUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -311,6 +425,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           </button>
         </form>
 
+        {isSuperadmin ? (
         <div className="settings-panel">
           <div>
             <p className="management-kicker">{t("系统开关")}</p>
@@ -326,6 +441,58 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label={t("允许普通用户使用自建代理")} checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
           <SettingToggle label={t("允许普通用户选择目标平台")} checked={settings.allowUserSelectBackend} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserSelectBackend", value)} />
           <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
+          <SettingToggle label={t("启用强制前缀")} checked={settings.forcedPrefixEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedPrefixEnabled", value)} />
+        </div>
+        ) : null}
+
+        <div className="settings-panel prefix-manager">
+          <div>
+            <p className="management-kicker">{t("前缀管理")}</p>
+            <p className="management-help">
+              {isSuperadmin
+                ? t("管理强制上号前缀，超管可增删改任意前缀。")
+                : t("管理强制上号前缀，可添加与修改，仅能删除本人添加的。")}
+            </p>
+          </div>
+          <form className="prefix-add" onSubmit={addPrefix}>
+            <input
+              className="text-input"
+              value={newPrefix}
+              onChange={(event) => setNewPrefix(event.target.value)}
+              placeholder={t("新前缀，例如 Allen")}
+              maxLength={60}
+              disabled={saving}
+              aria-label={t("新前缀")}
+            />
+            <button className="secondary-button" type="submit" disabled={saving || !newPrefix.trim()}>
+              {t("添加")}
+            </button>
+          </form>
+          {prefixes.length ? (
+            <ul className="prefix-list">
+              {prefixes.map((prefix) => {
+                const canDelete = isSuperadmin || prefix.createdBy === currentUserId;
+                return (
+                  <li className="prefix-row" key={prefix.id}>
+                    <span className="prefix-value">{prefix.value}</span>
+                    <span className="prefix-owner">{prefix.createdByName}</span>
+                    <span className="prefix-row-actions">
+                      <button className="secondary-button compact-button" type="button" onClick={() => void renamePrefix(prefix)} disabled={saving}>
+                        {t("修改")}
+                      </button>
+                      {canDelete ? (
+                        <button className="danger-button" type="button" onClick={() => void removePrefix(prefix)} disabled={saving}>
+                          {t("删除")}
+                        </button>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="empty-state">{t("还没有前缀。添加一个供上号时选择。")}</p>
+          )}
         </div>
       </div>
 

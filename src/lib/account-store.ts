@@ -37,6 +37,24 @@ export type SystemSettings = {
   allowUserSelectBackend: boolean;
   /** When true, a `user` may record their own settlement/prepay ledger entries. */
   allowUserLedgerWrite: boolean;
+  /** When true, onboarding requires picking a prefix that is prepended to the batch note. */
+  forcedPrefixEnabled: boolean;
+};
+
+/**
+ * A reusable onboarding prefix. When the `forcedPrefixEnabled` switch is on, a
+ * prefix must be selected while onboarding and is prepended to the batch note.
+ * Superadmin/admin manage the list; regular users can only select.
+ */
+export type AccountPrefix = {
+  id: string;
+  /** The prefix text prepended to the batch note (e.g. "Allen"). */
+  value: string;
+  createdBy: string;
+  createdByName: string;
+  createdByRole: Role;
+  createdAt: string;
+  updatedAt: string;
 };
 
 /** A settlement (结算) pays down accrued usage; a prepay (预付) is a top-up that offsets future usage. */
@@ -126,6 +144,7 @@ export type LocalAccountStore = {
   backends: BackendConfigStore;
   poolOwnership: PoolOwnership[];
   ledger: LedgerEntry[];
+  accountPrefixes: AccountPrefix[];
 };
 
 const defaultSettings: SystemSettings = {
@@ -141,6 +160,8 @@ const defaultSettings: SystemSettings = {
   allowUserCustomProxy: true,
   allowUserSelectBackend: true,
   allowUserLedgerWrite: false,
+  // Off by default: turning it on immediately blocks onboarding until a prefix is chosen.
+  forcedPrefixEnabled: false,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -403,6 +424,61 @@ export async function deleteLedgerEntry(id: string) {
   });
 }
 
+/** All onboarding prefixes, newest first. */
+export async function listAccountPrefixes(): Promise<AccountPrefix[]> {
+  const store = await getAccountStore();
+  return store.accountPrefixes;
+}
+
+/** Append a prefix. Returns null if an identical value already exists (case-insensitive). */
+export async function addAccountPrefix(input: Pick<AccountPrefix, "value" | "createdBy" | "createdByName" | "createdByRole">) {
+  return mutateStore((store) => {
+    const value = input.value.trim();
+    if (!value) return null;
+    const duplicate = store.accountPrefixes.some((item) => item.value.toLowerCase() === value.toLowerCase());
+    if (duplicate) return null;
+    const now = new Date().toISOString();
+    const entry: AccountPrefix = {
+      id: randomUUID(),
+      value,
+      createdBy: input.createdBy,
+      createdByName: input.createdByName,
+      createdByRole: input.createdByRole,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.accountPrefixes.unshift(entry);
+    return entry;
+  });
+}
+
+/** Rename a prefix by id. Returns null if not found, "" value, or a duplicate. */
+export async function updateAccountPrefix(id: string, value: string) {
+  return mutateStore((store) => {
+    const next = value.trim();
+    if (!next) return null;
+    const entry = store.accountPrefixes.find((item) => item.id === id);
+    if (!entry) return null;
+    const duplicate = store.accountPrefixes.some(
+      (item) => item.id !== id && item.value.toLowerCase() === next.toLowerCase(),
+    );
+    if (duplicate) return null;
+    entry.value = next;
+    entry.updatedAt = new Date().toISOString();
+    return entry;
+  });
+}
+
+/** Remove a prefix by id. Returns the removed entry, or null if not found. */
+export async function deleteAccountPrefix(id: string) {
+  return mutateStore((store) => {
+    const index = store.accountPrefixes.findIndex((item) => item.id === id);
+    if (index < 0) return null;
+    const [entry] = store.accountPrefixes.splice(index, 1);
+    return entry;
+  });
+}
+
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
 export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
 
@@ -504,7 +580,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [] };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [], accountPrefixes: [] };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -515,6 +591,7 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     backends: normalizeBackends(value.backends),
     poolOwnership: Array.isArray(value.poolOwnership) ? value.poolOwnership : [],
     ledger: Array.isArray(value.ledger) ? value.ledger : [],
+    accountPrefixes: Array.isArray(value.accountPrefixes) ? value.accountPrefixes : [],
   };
 }
 
