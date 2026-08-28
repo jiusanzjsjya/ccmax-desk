@@ -1513,16 +1513,53 @@ select.text-input,
   background: var(--fill-soft);
 }
 
-.custom-proxy-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.proxy-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
 }
 
-@media (max-width: 560px) {
-  .custom-proxy-grid {
-    grid-template-columns: 1fr;
-  }
+.proxy-tabs button {
+  min-height: 34px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.proxy-tabs button.is-active {
+  background: var(--fill-strong);
+  color: var(--on-ink);
+}
+
+.proxy-tabs button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.proxy-check {
+  margin: 0;
+  color: var(--faint);
+  font-family: var(--font-code);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.proxy-check.is-ok {
+  color: var(--accent);
+}
+
+.proxy-check.is-error {
+  color: var(--ink);
 }
 
 .wizard-actions,

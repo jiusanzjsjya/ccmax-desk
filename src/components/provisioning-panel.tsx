@@ -685,6 +685,73 @@ function WizardView({
   );
 }
 
+type ProxyKind = "http" | "socks5";
+
+type ParsedProxy = { protocol: ProxyKind; host: string; port: number; username?: string; password?: string };
+
+const PROXY_TABS: { id: ProxyKind; label: string; placeholder: string }[] = [
+  { id: "http", label: "HTTP", placeholder: "1.2.3.4:8080  或  user:pass@1.2.3.4:8080" },
+  { id: "socks5", label: "SOCKS5", placeholder: "1.2.3.4:1080  或  user:pass@1.2.3.4:1080" },
+];
+
+/**
+ * Parse a pasted proxy string against the selected tab. Accepts three shapes —
+ * `host:port`, `host:port:user:pass`, and `user:pass@host:port` — optionally with
+ * a scheme prefix, which must match the active tab (http↔http/https, socks5↔socks5/socks5h).
+ * The tab locks the protocol, so a bare address never guesses the wrong scheme.
+ */
+function parseProxyString(raw: string, tab: ProxyKind): { ok: true; value: ParsedProxy } | { ok: false; message: string } {
+  let text = raw.trim();
+  if (!text) return { ok: false, message: "请粘贴代理地址。" };
+
+  const scheme = text.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
+  if (scheme) {
+    const name = scheme[1].toLowerCase();
+    const family: ProxyKind | null =
+      name === "http" || name === "https" ? "http" : name === "socks5" || name === "socks5h" ? "socks5" : null;
+    if (!family) return { ok: false, message: `无法识别的协议头 ${name}://。` };
+    if (family !== tab) {
+      return { ok: false, message: `协议头 ${name}:// 与所选「${tab === "http" ? "HTTP" : "SOCKS5"}」不一致。` };
+    }
+    text = text.slice(scheme[0].length);
+  }
+
+  let host = "";
+  let portText = "";
+  let username: string | undefined;
+  let password: string | undefined;
+
+  const at = text.lastIndexOf("@");
+  if (at >= 0) {
+    const cred = text.slice(0, at);
+    const hostPort = text.slice(at + 1);
+    const ci = cred.indexOf(":");
+    if (ci < 0) return { ok: false, message: "认证部分应为 user:pass。" };
+    username = cred.slice(0, ci);
+    password = cred.slice(ci + 1);
+    const hp = hostPort.split(":");
+    if (hp.length !== 2) return { ok: false, message: "地址部分应为 host:port。" };
+    [host, portText] = hp;
+  } else {
+    const parts = text.split(":");
+    if (parts.length === 2) {
+      [host, portText] = parts;
+    } else if (parts.length === 4) {
+      [host, portText, username, password] = parts;
+    } else {
+      return { ok: false, message: "格式应为 host:port、host:port:user:pass 或 user:pass@host:port。" };
+    }
+  }
+
+  host = host.trim();
+  const port = Number(portText.trim());
+  if (!host) return { ok: false, message: "缺少主机地址。" };
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, message: "端口无效（1–65535）。" };
+  if (username !== undefined && username.trim() === "") return { ok: false, message: "用户名不能为空（或整体省略认证）。" };
+
+  return { ok: true, value: { protocol: tab, host, port, username: username?.trim() || undefined, password: password || undefined } };
+}
+
 function CustomProxyForm({
   onAdd,
   disabled,
@@ -693,38 +760,34 @@ function CustomProxyForm({
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [protocol, setProtocol] = useState("http");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [tab, setTab] = useState<ProxyKind>("http");
+  const [raw, setRaw] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  const parsed = useMemo(() => parseProxyString(raw, tab), [raw, tab]);
+  const active = PROXY_TABS.find((t) => t.id === tab) ?? PROXY_TABS[0];
+
   async function submit() {
-    const portNum = Number(port);
-    if (!host.trim() || !Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-      setResult({ ok: false, message: "请填写有效的主机和端口（1–65535）。" });
+    if (!parsed.ok) {
+      setResult({ ok: false, message: parsed.message });
       return;
     }
     setBusy(true);
     setResult(null);
     const res = await onAdd({
       name: name.trim(),
-      protocol,
-      host: host.trim(),
-      port: portNum,
-      username: username.trim() || undefined,
-      password: password || undefined,
+      protocol: parsed.value.protocol,
+      host: parsed.value.host,
+      port: parsed.value.port,
+      username: parsed.value.username,
+      password: parsed.value.password,
     });
     setResult(res.message ? res : null);
     setBusy(false);
     if (res.ok) {
-      setHost("");
-      setPort("");
-      setUsername("");
-      setPassword("");
+      setRaw("");
       setName("");
       setOpen(false);
     }
@@ -740,21 +803,60 @@ function CustomProxyForm({
 
   return (
     <div className="custom-proxy">
-      <div className="custom-proxy-grid">
-        <select className="text-input" value={protocol} onChange={(event) => setProtocol(event.target.value)} disabled={busy} aria-label="协议">
-          <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
-          <option value="socks5">SOCKS5</option>
-          <option value="socks5h">SOCKS5H</option>
-        </select>
-        <input className="text-input" value={host} onChange={(event) => setHost(event.target.value)} placeholder="主机 / IP" autoComplete="off" disabled={busy} aria-label="主机" />
-        <input className="text-input" value={port} onChange={(event) => setPort(event.target.value)} placeholder="端口" inputMode="numeric" disabled={busy} aria-label="端口" />
-        <input className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="名称（可选）" maxLength={80} disabled={busy} aria-label="名称" />
-        <input className="text-input" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="用户名（可选）" autoComplete="off" disabled={busy} aria-label="用户名" />
-        <input className="text-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="密码（可选）" autoComplete="new-password" disabled={busy} aria-label="密码" />
+      <div className="proxy-tabs" role="tablist" aria-label="代理协议">
+        {PROXY_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? "is-active" : ""}
+            onClick={() => setTab(t.id)}
+            disabled={busy}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
+
+      <label className="field-label" htmlFor="proxy-paste">粘贴 {active.label} 代理</label>
+      <input
+        id="proxy-paste"
+        className="text-input"
+        value={raw}
+        onChange={(event) => setRaw(event.target.value)}
+        placeholder={active.placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={busy}
+        aria-label={`${active.label} 代理地址`}
+      />
+
+      {raw.trim() ? (
+        parsed.ok ? (
+          <p className="proxy-check is-ok">
+            ✓ {parsed.value.protocol}://{parsed.value.host}:{parsed.value.port}
+            {parsed.value.username ? ` · 认证 ${parsed.value.username}` : " · 无认证"}
+          </p>
+        ) : (
+          <p className="proxy-check is-error">✕ {parsed.message}</p>
+        )
+      ) : (
+        <p className="proxy-check">选项卡锁定协议，支持 host:port、host:port:user:pass、user:pass@host:port。</p>
+      )}
+
+      <input
+        className="text-input"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="名称（可选）"
+        maxLength={80}
+        disabled={busy}
+        aria-label="名称"
+      />
+
       <div className="flow-actions">
-        <button className="oauth-button" type="button" onClick={submit} disabled={busy || !host.trim() || !port.trim()}>
+        <button className="oauth-button" type="button" onClick={submit} disabled={busy || !parsed.ok}>
           {busy ? "创建中..." : "创建并选用"}
         </button>
         <button className="secondary-button" type="button" onClick={() => { setOpen(false); setResult(null); }} disabled={busy}>
