@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/lib/i18n/context";
+
 type PoolAccount = {
   id: number | string | null;
   name: string | null;
@@ -95,7 +97,10 @@ type Alert = {
   tags: { key: RuleKey; label: string; severity: Severity }[];
 };
 
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
 export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform: string; sub2ApiConfigured: boolean }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [stats, setStats] = useState<PoolStats | null>(null);
   const [notable, setNotable] = useState<PoolAccount[]>([]);
@@ -154,7 +159,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
       if (!response.ok) {
         setNotable([]);
         setStats(null);
-        setError(readOpsError(response.status, payload.error));
+        setError(t(readOpsError(response.status, payload.error)));
         return;
       }
       if (payload.pending) {
@@ -172,11 +177,11 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
       setConcurrencySum(payload.concurrencySum ?? 0);
       setCapacity(payload.capacity ?? 1000);
     } catch {
-      setError("无法连接账号池服务，请检查本地服务状态。");
+      setError(t("无法连接账号池服务，请检查本地服务状态。"));
     } finally {
       setLoading(false);
     }
-  }, [platform, sub2ApiConfigured, redirectToLogin]);
+  }, [platform, sub2ApiConfigured, redirectToLogin, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -189,7 +194,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
     return () => window.clearInterval(timer);
   }, [autoRefresh, sub2ApiConfigured, load]);
 
-  const alerts = useMemo(() => buildAlerts(notable, rules), [notable, rules]);
+  const alerts = useMemo(() => buildAlerts(notable, rules, t), [notable, rules, t]);
   const counts = useMemo(() => {
     return alerts.reduce(
       (acc, alert) => {
@@ -201,11 +206,11 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
   }, [alerts]);
 
   if (!sub2ApiConfigured) {
-    return <p className="empty-state">账号池仅对 Sub2API 可用。请先在「多平台后端」配置并启用 Sub2API。</p>;
+    return <p className="empty-state">{t("账号池仅对 Sub2API 可用。请先在「多平台后端」配置并启用 Sub2API。")}</p>;
   }
 
   if (pending) {
-    return <p className="empty-state">该平台账号池待接入，敬请期待。</p>;
+    return <p className="empty-state">{t("该平台账号池待接入，敬请期待。")}</p>;
   }
 
   const available = stats ? `${stats.normalAccounts} / ${stats.totalAccounts}` : "—";
@@ -216,39 +221,39 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
       <div className="ops-bar">
         <div className="ops-scan">
           {scoped
-            ? `本人账号 ${scanned} 个`
+            ? t("本人账号 {n} 个", { n: scanned })
             : truncated
-              ? `已扫描前 ${scanned} 个账号（池内更多）`
-              : `已扫描 ${scanned} 个账号`}
+              ? t("已扫描前 {n} 个账号（池内更多）", { n: scanned })
+              : t("已扫描 {n} 个账号", { n: scanned })}
         </div>
         <div className="pool-heading-actions">
           <label className="setting-toggle pool-auto">
-            <span>自动刷新 15s</span>
+            <span>{t("自动刷新 15s")}</span>
             <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
             <i aria-hidden="true" />
           </label>
           <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
-            {loading ? "扫描中..." : "刷新"}
+            {loading ? t("扫描中...") : t("刷新")}
           </button>
         </div>
       </div>
 
       <div className="pool-stats ops-stats">
-        <OpsStat k="可用账号" v={available} tone="ok" />
-        <OpsStat k="冷却中" v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
-        <OpsStat k="掉权" v={stats ? String(stats.errorAccounts) : "—"} tone={stats && stats.errorAccounts > 0 ? "bad" : "muted"} />
-        <OpsStat k="实时并发" v={String(concurrencySum)} tone="muted" />
-        <OpsStat k={scoped ? "本人 RPM" : "全局 RPM"} v={stats ? String(stats.rpm) : "—"} tone="muted" />
-        {scoped ? null : <OpsStat k="全局 TPM" v={stats ? formatCount(stats.tpm) : "—"} tone="muted" />}
-        <OpsStat k="承载" v={stats ? `${stats.totalAccounts} / ${capacity}` : "—"} tone={stats && stats.totalAccounts >= capacity ? "bad" : "muted"} />
-        <OpsStat k="当前告警" v={String(alerts.length)} tone={alerts.length > 0 ? (counts.critical > 0 ? "bad" : "warn") : "ok"} />
+        <OpsStat k={t("可用账号")} v={available} tone="ok" />
+        <OpsStat k={t("冷却中")} v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
+        <OpsStat k={t("掉权")} v={stats ? String(stats.errorAccounts) : "—"} tone={stats && stats.errorAccounts > 0 ? "bad" : "muted"} />
+        <OpsStat k={t("实时并发")} v={String(concurrencySum)} tone="muted" />
+        <OpsStat k={scoped ? t("本人 RPM") : t("全局 RPM")} v={stats ? String(stats.rpm) : "—"} tone="muted" />
+        {scoped ? null : <OpsStat k={t("全局 TPM")} v={stats ? formatCount(stats.tpm) : "—"} tone="muted" />}
+        <OpsStat k={t("承载")} v={stats ? `${stats.totalAccounts} / ${capacity}` : "—"} tone={stats && stats.totalAccounts >= capacity ? "bad" : "muted"} />
+        <OpsStat k={t("当前告警")} v={String(alerts.length)} tone={alerts.length > 0 ? (counts.critical > 0 ? "bad" : "warn") : "ok"} />
       </div>
 
       <div className="ops-rules">
         <div className="ops-rules-head">
-          <p className="label">告警规则</p>
+          <p className="label">{t("告警规则")}</p>
           <button className="ghost-button" type="button" onClick={() => persistRules(DEFAULT_RULES)}>
-            重置默认
+            {t("重置默认")}
           </button>
         </div>
         <div className="ops-rules-grid">
@@ -259,7 +264,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
                 <label className="setting-toggle">
                   <span>
                     <i className={`sev-dot sev-${meta.severity}`} aria-hidden="true" />
-                    {meta.label}
+                    {t(meta.label)}
                   </span>
                   <input
                     type="checkbox"
@@ -268,10 +273,10 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
                   />
                   <i aria-hidden="true" />
                 </label>
-                <p className="ops-rule-hint">{meta.hint}</p>
+                <p className="ops-rule-hint">{t(meta.hint)}</p>
                 {meta.threshold ? (
                   <label className="ops-rule-th">
-                    <span>阈值 {Math.round((meta.threshold === "cost" ? rules.costThreshold : rules.rpmThreshold) * 100)}%</span>
+                    <span>{t("阈值 {n}%", { n: Math.round((meta.threshold === "cost" ? rules.costThreshold : rules.rpmThreshold) * 100) })}</span>
                     <input
                       type="range"
                       min={50}
@@ -299,7 +304,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
       {alerts.length === 0 && !loading && !error ? (
         <p className="empty-state ops-clear">
           <i className="sev-dot sev-ok" aria-hidden="true" />
-          无触发告警 — 已扫描账号均在阈值内。
+          {t("无触发告警 — 已扫描账号均在阈值内。")}
         </p>
       ) : (
         <ul className="ops-feed">
@@ -308,7 +313,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
               <span className={`sev-bar sev-${alert.severity}`} aria-hidden="true" />
               <div className="ops-alert-main">
                 <div className="ops-alert-top">
-                  <strong>{alert.account.email || alert.account.name || "未命名账号"}</strong>
+                  <strong>{alert.account.email || alert.account.name || t("未命名账号")}</strong>
                   <span className="ops-alert-rule">{alert.headline}</span>
                 </div>
                 <p className="ops-alert-detail">{alert.detail}</p>
@@ -319,7 +324,7 @@ export default function PoolOpsBoard({ platform, sub2ApiConfigured }: { platform
                   {alert.account.groups.map((groupName) => (
                     <span className="ops-chip is-group" key={groupName}>{groupName}</span>
                   ))}
-                  <span className="ops-alert-when">最近 {formatDate(alert.account.lastUsedAt)}</span>
+                  <span className="ops-alert-when">{t("最近 {d}", { d: formatDate(alert.account.lastUsedAt) })}</span>
                 </div>
               </div>
             </li>
@@ -343,28 +348,28 @@ function OpsStat({ k, v, tone }: { k: string; v: string; tone: "ok" | "warn" | "
 }
 
 /** Evaluate each notable account against the enabled rules; one row per account. */
-function buildAlerts(accounts: PoolAccount[], rules: RuleConfig): Alert[] {
+function buildAlerts(accounts: PoolAccount[], rules: RuleConfig, t: TFn): Alert[] {
   const out: Alert[] = [];
 
   for (const account of accounts) {
     const tags: Alert["tags"] = [];
 
     if (rules.error && account.status === "error") {
-      tags.push({ key: "error", label: "掉权", severity: "critical" });
+      tags.push({ key: "error", label: t("掉权"), severity: "critical" });
     }
-    if (rules.cooldown && cooldownText(account)) {
-      tags.push({ key: "cooldown", label: "冷却", severity: "warn" });
+    if (rules.cooldown && cooldownText(account, t)) {
+      tags.push({ key: "cooldown", label: t("冷却"), severity: "warn" });
     }
     if (rules.cost) {
       const ratio = pressureRatio(account.currentWindowCost, account.windowCostLimit);
-      if (ratio >= rules.costThreshold) tags.push({ key: "cost", label: "额度", severity: "warn" });
+      if (ratio >= rules.costThreshold) tags.push({ key: "cost", label: t("额度"), severity: "warn" });
     }
     if (rules.rpm) {
       const ratio = pressureRatio(account.currentRpm, account.baseRpm);
-      if (ratio >= rules.rpmThreshold) tags.push({ key: "rpm", label: "RPM", severity: "warn" });
+      if (ratio >= rules.rpmThreshold) tags.push({ key: "rpm", label: t("RPM"), severity: "warn" });
     }
     if (rules.disabled && account.status !== "error" && (account.status === "disabled" || account.schedulable === false)) {
-      tags.push({ key: "disabled", label: "停用", severity: "info" });
+      tags.push({ key: "disabled", label: t("停用"), severity: "info" });
     }
 
     if (!tags.length) continue;
@@ -375,8 +380,8 @@ function buildAlerts(accounts: PoolAccount[], rules: RuleConfig): Alert[] {
       account,
       primary: primary.key,
       severity: primary.severity,
-      headline: RULE_META.find((meta) => meta.key === primary.key)?.label ?? primary.label,
-      detail: detailFor(primary.key, account, rules),
+      headline: t(RULE_META.find((meta) => meta.key === primary.key)?.label ?? "") || primary.label,
+      detail: detailFor(primary.key, account, rules, t),
       tags,
     });
   }
@@ -385,39 +390,49 @@ function buildAlerts(accounts: PoolAccount[], rules: RuleConfig): Alert[] {
   return out;
 }
 
-function detailFor(rule: RuleKey, account: PoolAccount, rules: RuleConfig): string {
+function detailFor(rule: RuleKey, account: PoolAccount, rules: RuleConfig, t: TFn): string {
   switch (rule) {
     case "error":
-      return account.errorMessage || "账号返回错误或已被封禁，需人工介入。";
+      return account.errorMessage || t("账号返回错误或已被封禁，需人工介入。");
     case "cooldown":
-      return cooldownText(account) || "账号处于限流冷却中。";
+      return cooldownText(account, t) || t("账号处于限流冷却中。");
     case "cost": {
       const pct = Math.round(pressureRatio(account.currentWindowCost, account.windowCostLimit) * 100);
-      return `窗口额度 $${(account.currentWindowCost ?? 0).toFixed(2)} / $${(account.windowCostLimit ?? 0).toFixed(2)}（${pct}% ≥ ${Math.round(rules.costThreshold * 100)}%）`;
+      return t("窗口额度 ${cur} / ${lim}（{pct}% ≥ {th}%）", {
+        cur: (account.currentWindowCost ?? 0).toFixed(2),
+        lim: (account.windowCostLimit ?? 0).toFixed(2),
+        pct,
+        th: Math.round(rules.costThreshold * 100),
+      });
     }
     case "rpm": {
       const pct = Math.round(pressureRatio(account.currentRpm, account.baseRpm) * 100);
-      return `RPM ${account.currentRpm ?? 0} / ${account.baseRpm ?? 0}（${pct}% ≥ ${Math.round(rules.rpmThreshold * 100)}%）`;
+      return t("RPM {cur} / {base}（{pct}% ≥ {th}%）", {
+        cur: account.currentRpm ?? 0,
+        base: account.baseRpm ?? 0,
+        pct,
+        th: Math.round(rules.rpmThreshold * 100),
+      });
     }
     case "disabled":
-      return account.schedulable === false ? "账号被标记为不可调度。" : "账号已停用。";
+      return account.schedulable === false ? t("账号被标记为不可调度。") : t("账号已停用。");
     default:
       return "";
   }
 }
 
-function cooldownText(account: PoolAccount): string | null {
+function cooldownText(account: PoolAccount, t: TFn): string | null {
   const now = Date.now();
   const future = (ts: string | null) => {
     if (!ts) return false;
     const parsed = Date.parse(ts);
     return Number.isFinite(parsed) && parsed > now;
   };
-  if (future(account.overloadUntil)) return `过载至 ${formatDate(account.overloadUntil)}`;
-  if (future(account.rateLimitResetAt)) return `限流至 ${formatDate(account.rateLimitResetAt)}`;
+  if (future(account.overloadUntil)) return t("过载至 {d}", { d: formatDate(account.overloadUntil) });
+  if (future(account.rateLimitResetAt)) return t("限流至 {d}", { d: formatDate(account.rateLimitResetAt) });
   if (future(account.tempUnschedulableUntil)) {
     const reason = account.tempUnschedulableReason ? `（${account.tempUnschedulableReason}）` : "";
-    return `冷却至 ${formatDate(account.tempUnschedulableUntil)}${reason}`;
+    return t("冷却至 {d}", { d: formatDate(account.tempUnschedulableUntil) }) + reason;
   }
   return null;
 }

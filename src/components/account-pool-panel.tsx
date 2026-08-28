@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import PoolOpsBoard from "@/components/pool-ops-board";
+import { useI18n } from "@/lib/i18n/context";
+import type { TVars } from "@/lib/i18n/context";
 
 type WindowUse = {
   utilization: number;
@@ -107,6 +109,7 @@ const PAGE_SIZES = [20, 50, 100];
 const REFRESH_MS = 15000;
 
 export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigured: boolean }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [accounts, setAccounts] = useState<PoolAccount[]>([]);
   const [total, setTotal] = useState(0);
@@ -161,7 +164,7 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
       if (!response.ok) {
         setAccounts([]);
         setStats(null);
-        setError(readPoolError(response.status, payload.error));
+        setError(readPoolError(t, response.status, payload.error));
         return;
       }
       // Platforms other than Sub2API have no browsable pool yet.
@@ -183,11 +186,11 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
         groupsLoaded.current = true;
       }
     } catch {
-      setError("无法连接账号池服务，请检查本地服务状态。");
+      setError(t("无法连接账号池服务，请检查本地服务状态。"));
     } finally {
       setLoading(false);
     }
-  }, [sub2ApiConfigured, platform, sort, page, pageSize, search, group, status, redirectToLogin]);
+  }, [sub2ApiConfigured, platform, sort, page, pageSize, search, group, status, redirectToLogin, t]);
 
   useEffect(() => {
     if (mode !== "accounts") return;
@@ -236,11 +239,11 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
       <section className="pool">
         <div className="pool-heading">
           <div>
-            <p className="label">账号池统揽</p>
-            <h3>已入池账号</h3>
+            <p className="label">{t("账号池统揽")}</p>
+            <h3>{t("已入池账号")}</h3>
           </div>
         </div>
-        <p className="empty-state">账号池仅对 Sub2API 可用。请先在「多平台后端」配置并启用 Sub2API。</p>
+        <p className="empty-state">{t("账号池仅对 Sub2API 可用。请先在「多平台后端」配置并启用 Sub2API。")}</p>
       </section>
     );
   }
@@ -249,9 +252,9 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     <section className="pool" aria-labelledby="pool-title">
       <div className="pool-heading">
         <div>
-          <p className="label">账号池统揽</p>
-          <h3 id="pool-title">OAuth 账号调度与健康</h3>
-          {scoped && !pending ? <p className="pool-scope-note">仅显示本人上号的账号</p> : null}
+          <p className="label">{t("账号池统揽")}</p>
+          <h3 id="pool-title">{t("OAuth 账号调度与健康")}</h3>
+          {scoped && !pending ? <p className="pool-scope-note">{t("仅显示本人上号的账号")}</p> : null}
         </div>
         <div className="pool-heading-actions">
           {platforms.length > 1 ? (
@@ -259,30 +262,30 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
               className="text-input pool-platform"
               value={platform}
               onChange={(event) => { setPending(false); setPage(1); setPlatform(event.target.value); }}
-              aria-label="平台"
+              aria-label={t("平台")}
             >
               {platforms.map((option) => (
                 <option key={option.ref} value={option.ref}>{option.label}</option>
               ))}
             </select>
           ) : null}
-          <div className="pool-view pool-modes" role="tablist" aria-label="账号池视图">
+          <div className="pool-view pool-modes" role="tablist" aria-label={t("账号池视图")}>
             <button type="button" role="tab" aria-selected={mode === "accounts"} className={mode === "accounts" ? "is-active" : ""} onClick={() => setMode("accounts")}>
-              账号列表
+              {t("账号列表")}
             </button>
             <button type="button" role="tab" aria-selected={mode === "ops"} className={mode === "ops" ? "is-active" : ""} onClick={() => setMode("ops")}>
-              运维告警
+              {t("运维告警")}
             </button>
           </div>
           {mode === "accounts" ? (
             <>
               <label className="setting-toggle pool-auto">
-                <span>自动刷新 15s</span>
+                <span>{t("自动刷新 15s")}</span>
                 <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
                 <i aria-hidden="true" />
               </label>
               <button className="secondary-button" type="button" onClick={() => void load()} disabled={loading}>
-                {loading ? "刷新中..." : "刷新"}
+                {loading ? t("刷新中...") : t("刷新")}
               </button>
             </>
           ) : null}
@@ -290,16 +293,16 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
       </div>
 
       {mode === "ops" ? <PoolOpsBoard platform={platform} sub2ApiConfigured={sub2ApiConfigured} /> : pending ? (
-        <p className="empty-state">该平台账号池待接入，敬请期待。</p>
+        <p className="empty-state">{t("该平台账号池待接入，敬请期待。")}</p>
       ) : (
       <>
       <div className="pool-stats">
-        <PoolStat k="可用账号" v={available} tone="ok" />
-        <PoolStat k="冷却中" v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
-        <PoolStat k={scoped ? "本人 RPM" : "全局 RPM"} v={stats ? String(stats.rpm) : "—"} tone="muted" />
-        <PoolStat k="今日额度" v={stats ? `$${stats.todayCost.toFixed(2)}` : "—"} tone="muted" />
-        <PoolStat k="今日请求" v={stats ? formatCount(stats.todayRequests) : "—"} tone="muted" />
-        <PoolStat k="承载" v={`${carried} / ${capacity}`} tone={carried >= capacity ? "bad" : "muted"} />
+        <PoolStat k={t("可用账号")} v={available} tone="ok" />
+        <PoolStat k={t("冷却中")} v={String(cooling)} tone={cooling > 0 ? "warn" : "muted"} />
+        <PoolStat k={scoped ? t("本人 RPM") : t("全局 RPM")} v={stats ? String(stats.rpm) : "—"} tone="muted" />
+        <PoolStat k={t("今日额度")} v={stats ? `$${stats.todayCost.toFixed(2)}` : "—"} tone="muted" />
+        <PoolStat k={t("今日请求")} v={stats ? formatCount(stats.todayRequests) : "—"} tone="muted" />
+        <PoolStat k={t("承载")} v={`${carried} / ${capacity}`} tone={carried >= capacity ? "bad" : "muted"} />
       </div>
 
       <form className="pool-filters" onSubmit={applySearch}>
@@ -307,47 +310,47 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
           className="text-input"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="搜索账号名 / 邮箱，回车"
-          aria-label="搜索账号"
+          placeholder={t("搜索账号名 / 邮箱，回车")}
+          aria-label={t("搜索账号")}
         />
-        <select className="text-input" value={group} onChange={(event) => { setPage(1); setGroup(event.target.value); }} aria-label="分组">
-          <option value="">全部分组</option>
+        <select className="text-input" value={group} onChange={(event) => { setPage(1); setGroup(event.target.value); }} aria-label={t("分组")}>
+          <option value="">{t("全部分组")}</option>
           {groups.map((option) => (
             <option key={option.id} value={String(option.id)}>{option.name}</option>
           ))}
         </select>
-        <select className="text-input" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }} aria-label="状态">
+        <select className="text-input" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }} aria-label={t("状态")}>
           {STATUSES.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value}>{t(option.label)}</option>
           ))}
         </select>
-        <select className="text-input" value={sort} onChange={(event) => { setPage(1); setSort(event.target.value); }} aria-label="排序">
-          <optgroup label="服务端排序">
+        <select className="text-input" value={sort} onChange={(event) => { setPage(1); setSort(event.target.value); }} aria-label={t("排序")}>
+          <optgroup label={t("服务端排序")}>
             {SERVER_SORTS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value}>{t(option.label)}</option>
             ))}
           </optgroup>
-          <optgroup label="本页排序">
+          <optgroup label={t("本页排序")}>
             {CLIENT_SORTS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value}>{t(option.label)}</option>
             ))}
           </optgroup>
         </select>
-        <select className="text-input" value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }} aria-label="每页">
+        <select className="text-input" value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }} aria-label={t("每页")}>
           {PAGE_SIZES.map((size) => (
-            <option key={size} value={size}>{size} 条</option>
+            <option key={size} value={size}>{t("{size} 条", { size })}</option>
           ))}
         </select>
         <div className="pool-view">
-          <button type="button" className={view === "card" ? "is-active" : ""} onClick={() => setView("card")}>卡片</button>
-          <button type="button" className={view === "list" ? "is-active" : ""} onClick={() => setView("list")}>列表</button>
+          <button type="button" className={view === "card" ? "is-active" : ""} onClick={() => setView("card")}>{t("卡片")}</button>
+          <button type="button" className={view === "list" ? "is-active" : ""} onClick={() => setView("list")}>{t("列表")}</button>
         </div>
       </form>
 
       {error ? <div className="error-box" role="alert">{error}</div> : null}
 
       {displayed.length === 0 && !loading && !error ? (
-        <p className="empty-state">没有匹配的账号。调整筛选或先在「授权上号」入池。</p>
+        <p className="empty-state">{t("没有匹配的账号。调整筛选或先在「授权上号」入池。")}</p>
       ) : view === "card" ? (
         <div className="pool-grid">
           {displayed.map((account, index) => (
@@ -359,14 +362,14 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
       )}
 
       <div className="pool-foot">
-        <span>{total ? `${rangeStart}-${rangeEnd} / 共 ${total}` : "共 0"}</span>
+        <span>{total ? t("{start}-{end} / 共 {total}", { start: rangeStart, end: rangeEnd, total }) : t("共 0")}</span>
         <div className="pool-pager">
           <button className="secondary-button compact-button" type="button" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-            上一页
+            {t("上一页")}
           </button>
           <span className="pool-page">{page} / {totalPages}</span>
           <button className="secondary-button compact-button" type="button" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-            下一页
+            {t("下一页")}
           </button>
         </div>
       </div>
@@ -389,9 +392,10 @@ function PoolStat({ k, v, tone }: { k: string; v: string; tone: "ok" | "warn" | 
 }
 
 function PoolCard({ account }: { account: PoolAccount }) {
-  const health = healthOf(account);
-  const cooldown = cooldownOf(account);
-  const title = account.email || account.name || "未命名账号";
+  const { t } = useI18n();
+  const health = healthOf(t, account);
+  const cooldown = cooldownOf(t, account);
+  const title = account.email || account.name || t("未命名账号");
   const usage = account.usage;
 
   return (
@@ -400,7 +404,7 @@ function PoolCard({ account }: { account: PoolAccount }) {
         <span className="avatar">{initial(title)}</span>
         <div className="pool-id">
           <strong>{title}</strong>
-          <span>{account.name && account.email ? account.name : account.platform} · 添加 {formatDate(account.createdAt)}</span>
+          <span>{account.name && account.email ? account.name : account.platform} · {t("添加 {date}", { date: formatDate(account.createdAt) })}</span>
         </div>
         <span className={`account-status ${health.className}`}>{health.label}</span>
       </div>
@@ -425,9 +429,9 @@ function PoolCard({ account }: { account: PoolAccount }) {
           </div>
           {usage.sevenDayFable || usage.sevenDaySonnet ? (
             <p className="pool-models">
-              {usage.sevenDayFable ? `Fable5 ${Math.round(usage.sevenDayFable.utilization)}%` : "Fable5 无数据"}
+              {usage.sevenDayFable ? `Fable5 ${Math.round(usage.sevenDayFable.utilization)}%` : t("Fable5 无数据")}
               {" · "}
-              {usage.sevenDaySonnet ? `Sonnet ${Math.round(usage.sevenDaySonnet.utilization)}%` : "Sonnet 无数据"}
+              {usage.sevenDaySonnet ? `Sonnet ${Math.round(usage.sevenDaySonnet.utilization)}%` : t("Sonnet 无数据")}
             </p>
           ) : null}
         </>
@@ -435,37 +439,38 @@ function PoolCard({ account }: { account: PoolAccount }) {
 
       <div className="pool-meters">
         <Meter label="RPM" current={account.currentRpm} limit={account.baseRpm} />
-        <Meter label="并发" current={account.currentConcurrency} limit={account.concurrency} />
+        <Meter label={t("并发")} current={account.currentConcurrency} limit={account.concurrency} />
         <Meter label="SLOTS" current={account.activeSessions} limit={account.maxSessions} />
       </div>
 
       <div className="pool-card-foot">
-        <span>今日 {usage?.today ? `$${usage.today.cost.toFixed(2)} · ${formatCount(usage.today.requests)}次` : "—"}</span>
-        <span>倍率 ×{account.rateMultiplier ?? 1} · 最近 {account.lastUsedAt ? formatDate(account.lastUsedAt) : "—"}</span>
+        <span>{t("今日 {v}", { v: usage?.today ? t("${cost} · {req}次", { cost: usage.today.cost.toFixed(2), req: formatCount(usage.today.requests) }) : "—" })}</span>
+        <span>{t("倍率 ×{rate} · 最近 {date}", { rate: account.rateMultiplier ?? 1, date: account.lastUsedAt ? formatDate(account.lastUsedAt) : "—" })}</span>
       </div>
     </article>
   );
 }
 
 function PoolList({ accounts }: { accounts: PoolAccount[] }) {
+  const { t } = useI18n();
   return (
     <div className="pool-table" role="table">
       <div className="pool-row is-head" role="row">
-        <span>账号</span>
-        <span>状态</span>
-        <span>订阅</span>
-        <span>今日额度</span>
+        <span>{t("账号")}</span>
+        <span>{t("状态")}</span>
+        <span>{t("订阅")}</span>
+        <span>{t("今日额度")}</span>
         <span>RPM</span>
-        <span>并发</span>
+        <span>{t("并发")}</span>
         <span>SLOTS</span>
-        <span>倍率</span>
+        <span>{t("倍率")}</span>
       </div>
       {accounts.map((account, index) => {
-        const health = healthOf(account);
+        const health = healthOf(t, account);
         return (
           <div className="pool-row" role="row" key={keyOf(account, index)}>
             <span className="pool-row-id">
-              <strong>{account.email || account.name || "未命名"}</strong>
+              <strong>{account.email || account.name || t("未命名")}</strong>
               <em>{account.groups.join(" · ") || account.platform}</em>
             </span>
             <span><i className={`account-status ${health.className}`}>{health.label}</i></span>
@@ -483,19 +488,20 @@ function PoolList({ accounts }: { accounts: PoolAccount[] }) {
 }
 
 function UsageWin({ label, w }: { label: string; w: WindowUse | null }) {
+  const { t } = useI18n();
   const pct = w ? Math.min(100, Math.max(0, Math.round(w.utilization))) : 0;
   return (
     <div className={`pool-win ${w ? "" : "is-empty"}`}>
       <div className="pool-win-head">
         <span>{label}</span>
-        <b>{w ? `${pct}%` : "无数据"}</b>
+        <b>{w ? `${pct}%` : t("无数据")}</b>
       </div>
       <div className="pool-meter-track">
         <i style={{ width: `${pct}%` }} />
       </div>
       <div className="pool-win-sub">
-        <span>{w && w.cost != null ? `$${w.cost.toFixed(2)}` : "—"}{w && w.requests != null ? ` · ${formatCount(w.requests)}次` : ""}</span>
-        <span>{w && w.remainingSeconds > 0 ? `恢复 ${formatDuration(w.remainingSeconds)}` : ""}</span>
+        <span>{w && w.cost != null ? `$${w.cost.toFixed(2)}` : "—"}{w && w.requests != null ? t(" · {req}次", { req: formatCount(w.requests) }) : ""}</span>
+        <span>{w && w.remainingSeconds > 0 ? t("恢复 {duration}", { duration: formatDuration(w.remainingSeconds) }) : ""}</span>
       </div>
     </div>
   );
@@ -539,18 +545,18 @@ function sortClientSide(list: PoolAccount[], sort: string): PoolAccount[] {
   return [...list].sort((a, b) => (valueOf(a) - valueOf(b)) * dir);
 }
 
-function healthOf(account: PoolAccount): { label: string; className: string } {
-  if (account.status === "error") return { label: "掉权", className: "is-dead" };
-  if (account.status === "disabled" || account.schedulable === false) return { label: "已停用", className: "" };
-  return { label: "正常", className: "is-alive" };
+function healthOf(t: (key: string, vars?: TVars) => string, account: PoolAccount): { label: string; className: string } {
+  if (account.status === "error") return { label: t("掉权"), className: "is-dead" };
+  if (account.status === "disabled" || account.schedulable === false) return { label: t("已停用"), className: "" };
+  return { label: t("正常"), className: "is-alive" };
 }
 
-function cooldownOf(account: PoolAccount): string | null {
-  if (account.overloadUntil) return `过载至 ${formatDate(account.overloadUntil)}`;
-  if (account.rateLimitResetAt) return `限流至 ${formatDate(account.rateLimitResetAt)}`;
+function cooldownOf(t: (key: string, vars?: TVars) => string, account: PoolAccount): string | null {
+  if (account.overloadUntil) return t("过载至 {date}", { date: formatDate(account.overloadUntil) });
+  if (account.rateLimitResetAt) return t("限流至 {date}", { date: formatDate(account.rateLimitResetAt) });
   if (account.tempUnschedulableUntil) {
     const reason = account.tempUnschedulableReason ? `（${account.tempUnschedulableReason}）` : "";
-    return `冷却至 ${formatDate(account.tempUnschedulableUntil)}${reason}`;
+    return t("冷却至 {date}{reason}", { date: formatDate(account.tempUnschedulableUntil), reason });
   }
   return null;
 }
@@ -590,9 +596,9 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function readPoolError(status: number, error?: string) {
-  if (status === 403) return "当前角色不允许查看账号池。";
-  if (status === 503 && error === "sub2api_not_configured") return "Sub2API 尚未配置，请在「多平台后端」填写地址与管理令牌。";
-  if (status === 502 && error === "sub2api_auth_failed") return "Sub2API 管理令牌无效或已过期，请更新 SUB2API_ADMIN_TOKEN。";
-  return error || "读取账号池失败。";
+function readPoolError(t: (key: string, vars?: TVars) => string, status: number, error?: string) {
+  if (status === 403) return t("当前角色不允许查看账号池。");
+  if (status === 503 && error === "sub2api_not_configured") return t("Sub2API 尚未配置，请在「多平台后端」填写地址与管理令牌。");
+  if (status === 502 && error === "sub2api_auth_failed") return t("Sub2API 管理令牌无效或已过期，请更新 SUB2API_ADMIN_TOKEN。");
+  return error || t("读取账号池失败。");
 }

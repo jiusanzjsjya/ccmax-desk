@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 
 import { isValidClaudeAuthCode, normalizeClaudeAuthCode } from "@/lib/claude-auth-code";
 import { CLAUDE_COUNTRIES, DEFAULT_COUNTRY } from "@/lib/claude-countries";
+import { useI18n, type I18nValue } from "@/lib/i18n/context";
+
+type TFn = I18nValue["t"];
 
 type ProvisioningPanelProps = {
   adminConfigured: boolean;
@@ -55,6 +58,7 @@ type BackendOption = { ref: string; kind: string; label: string };
 const MAX_BATCH = 5;
 
 export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, canViewAccountPool }: ProvisioningPanelProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("wizard");
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -183,7 +187,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
   async function testSelectedProxy() {
     if (!selectedProxyId) return;
-    setProxyTest({ status: "testing", message: "检测中..." });
+    setProxyTest({ status: "testing", message: t("检测中...") });
 
     try {
       const response = await fetch(`/api/provisioning/proxies/${selectedProxyId}/test`, { method: "POST" });
@@ -197,16 +201,16 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok) {
-        setProxyTest({ status: "error", message: readApiError(response.status, payload.error, "代理检测失败。") });
+        setProxyTest({ status: "error", message: readApiError(t, response.status, payload.error, t("代理检测失败。")) });
         return;
       }
 
-      const parts = [payload.message || (payload.success ? "可用" : "不可用")];
+      const parts = [payload.message || (payload.success ? t("可用") : t("不可用"))];
       if (payload.latencyMs != null) parts.push(`${payload.latencyMs}ms`);
-      if (payload.exitIp) parts.push(`出口 ${payload.exitIp}`);
+      if (payload.exitIp) parts.push(t("出口 {ip}", { ip: payload.exitIp }));
       setProxyTest({ status: payload.success ? "ok" : "error", message: parts.join(" · ") });
     } catch {
-      setProxyTest({ status: "error", message: "无法连接代理检测服务。" });
+      setProxyTest({ status: "error", message: t("无法连接代理检测服务。") });
     }
   }
 
@@ -230,15 +234,15 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         return { ok: false, message: "" };
       }
       if (!response.ok || !payload.proxy) {
-        return { ok: false, message: readApiError(response.status, payload.error, "创建自定义代理失败。") };
+        return { ok: false, message: readApiError(t, response.status, payload.error, t("创建自定义代理失败。")) };
       }
       const proxy = payload.proxy;
       setProxies((current) => [proxy, ...current.filter((item) => String(item.id) !== String(proxy.id))]);
       setSelectedProxyId(String(proxy.id));
       setProxyTest({ status: "idle", message: "" });
-      return { ok: true, message: `已创建并选用代理：${proxy.name || `${proxy.host}:${proxy.port}`}` };
+      return { ok: true, message: t("已创建并选用代理：{name}", { name: proxy.name || `${proxy.host}:${proxy.port}` }) };
     } catch {
-      return { ok: false, message: "无法连接代理创建服务。" };
+      return { ok: false, message: t("无法连接代理创建服务。") };
     }
   }
 
@@ -265,7 +269,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.slots?.length) {
-        setError(readApiError(response.status, payload.error, "生成授权槽位失败。"));
+        setError(readApiError(t, response.status, payload.error, t("生成授权槽位失败。")));
         return;
       }
 
@@ -273,11 +277,11 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       setSlots((current) => [...current, ...fresh]);
       setMessage(
         payload.partial
-          ? `已生成 ${fresh.length} 个槽位（部分请求失败）。请逐个完成官方登录后提交回执。`
-          : `已生成 ${fresh.length} 个授权槽位。请在新标签完成官方登录，再回到这里逐个提交回执。`,
+          ? t("已生成 {n} 个槽位（部分请求失败）。请逐个完成官方登录后提交回执。", { n: fresh.length })
+          : t("已生成 {n} 个授权槽位。请在新标签完成官方登录，再回到这里逐个提交回执。", { n: fresh.length }),
       );
     } catch {
-      setError("无法连接 Sub2API 接入服务。");
+      setError(t("无法连接 Sub2API 接入服务。"));
     } finally {
       setLoading(false);
     }
@@ -286,18 +290,18 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   function cancelBatch() {
     setSlots((current) => current.filter((slot) => slot.status === "done"));
     setError("");
-    setMessage("已取消当前授权批次，待处理槽位已清空。");
+    setMessage(t("已取消当前授权批次，待处理槽位已清空。"));
   }
 
   async function submitSlot(slot: Slot) {
     const normalizedCode = normalizeClaudeAuthCode(slot.code);
 
     if (isExpired(slot.expiresAt, Date.now())) {
-      updateSlot(slot.flowId, { status: "error", result: "槽位已过期，请重新生成。" });
+      updateSlot(slot.flowId, { status: "error", result: t("槽位已过期，请重新生成。") });
       return;
     }
     if (!isValidClaudeAuthCode(normalizedCode)) {
-      updateSlot(slot.flowId, { status: "error", result: "回执格式不正确，请粘贴完整的 code#state 或回调 URL。" });
+      updateSlot(slot.flowId, { status: "error", result: t("回执格式不正确，请粘贴完整的 code#state 或回调 URL。") });
       return;
     }
 
@@ -321,16 +325,16 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       if (!response.ok || !payload.account) {
         updateSlot(slot.flowId, {
           status: "error",
-          result: readApiError(response.status, payload.error, "Claude 账号接入失败。"),
+          result: readApiError(t, response.status, payload.error, t("Claude 账号接入失败。")),
         });
         return;
       }
 
-      const label = payload.account.email || payload.account.name || "账号已入池";
-      updateSlot(slot.flowId, { status: "done", result: `已入池：${label}` });
+      const label = payload.account.email || payload.account.name || t("账号已入池");
+      updateSlot(slot.flowId, { status: "done", result: t("已入池：{label}", { label }) });
       setAccounts((current) => [payload.account as AccountSummary, ...current]);
     } catch {
-      updateSlot(slot.flowId, { status: "error", result: "无法连接 Sub2API 接入服务。" });
+      updateSlot(slot.flowId, { status: "error", result: t("无法连接 Sub2API 接入服务。") });
     }
   }
 
@@ -346,14 +350,14 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.items) {
-        setError(readApiError(response.status, payload.error, "读取已入池账号失败。"));
+        setError(readApiError(t, response.status, payload.error, t("读取已入池账号失败。")));
         return;
       }
 
       setAccounts(payload.items);
-      setMessage("账号列表已刷新。");
+      setMessage(t("账号列表已刷新。"));
     } catch {
-      setError("无法连接 Sub2API 接入服务。");
+      setError(t("无法连接 Sub2API 接入服务。"));
     } finally {
       setAccountsLoading(false);
     }
@@ -361,21 +365,21 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
 
   function clearFinished() {
     setSlots((current) => current.filter((slot) => slot.status !== "done" && !isExpired(slot.expiresAt, Date.now())));
-    setMessage("已清理完成和过期的槽位。");
+    setMessage(t("已清理完成和过期的槽位。"));
   }
 
   return (
     <div className="provisioning-workspace">
       {!configured ? (
         <div className="error-box">
-          {!adminConfigured ? "超级管理员账号未配置。" : null}
-          {!sub2ApiConfigured ? " Sub2API（Claude 授权代理）尚未配置，请在超管后台填写。" : null}
+          {!adminConfigured ? t("超级管理员账号未配置。") : null}
+          {!sub2ApiConfigured ? t(" Sub2API（Claude 授权代理）尚未配置，请在超管后台填写。") : null}
         </div>
       ) : null}
 
       {backends.length && backendSelectable ? (
         <div className="target-backend-bar">
-          <label className="field-label" htmlFor="target-backend">目标平台</label>
+          <label className="field-label" htmlFor="target-backend">{t("目标平台")}</label>
           <select
             id="target-backend"
             className="text-input"
@@ -392,24 +396,24 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         </div>
       ) : null}
 
-      <div className={`workspace-nav ${canViewAccountPool ? "" : "is-compact"}`} role="tablist" aria-label="账号接入视图">
+      <div className={`workspace-nav ${canViewAccountPool ? "" : "is-compact"}`} role="tablist" aria-label={t("账号接入视图")}>
         <button className={`workspace-tab ${activeTab === "wizard" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("wizard")}>
-          授权向导
+          {t("授权向导")}
         </button>
         <button className={`workspace-tab ${activeTab === "pending" ? "is-active" : ""}`} type="button" onClick={() => setActiveTab("pending")}>
-          待处理槽位 <span className="tab-count">{pendingCount}</span>
+          {t("待处理槽位")} <span className="tab-count">{pendingCount}</span>
         </button>
         {canViewAccountPool ? (
           <button className={`workspace-tab ${activeTab === "accounts" ? "is-active" : ""}`} type="button" onClick={loadAccounts}>
-            已入池账号
+            {t("已入池账号")}
           </button>
         ) : null}
       </div>
 
-      <div className="summary-strip" aria-label="账号统计">
-        <div><span>存活</span><strong>{aliveCount}</strong></div>
-        <div><span>失效</span><strong>{deadCount}</strong></div>
-        <div><span>待授权</span><strong>{pendingCount}</strong></div>
+      <div className="summary-strip" aria-label={t("账号统计")}>
+        <div><span>{t("存活")}</span><strong>{aliveCount}</strong></div>
+        <div><span>{t("失效")}</span><strong>{deadCount}</strong></div>
+        <div><span>{t("待授权")}</span><strong>{pendingCount}</strong></div>
       </div>
 
       {activeTab === "accounts" && canViewAccountPool ? (
@@ -539,13 +543,16 @@ function WizardView({
   country: string;
   setCountry: (value: string) => void;
 }) {
+  const { t, locale } = useI18n();
   const doneCount = slots.filter((slot) => slot.status === "done").length;
   const [countryQuery, setCountryQuery] = useState("");
   const countryOptions = useMemo(() => {
     const query = countryQuery.trim();
     if (!query) return CLAUDE_COUNTRIES;
     const lower = query.toLowerCase();
-    const matches = CLAUDE_COUNTRIES.filter((item) => item.zh.includes(query) || item.code.toLowerCase().includes(lower));
+    const matches = CLAUDE_COUNTRIES.filter(
+      (item) => item.zh.includes(query) || item.en.toLowerCase().includes(lower) || item.code.toLowerCase().includes(lower),
+    );
     // Keep the current selection visible even when it's filtered out.
     if (matches.some((item) => item.code === country)) return matches;
     const selected = CLAUDE_COUNTRIES.find((item) => item.code === country);
@@ -555,13 +562,13 @@ function WizardView({
   return (
     <section className="wizard-panel" aria-labelledby="wizard-title">
       <div className="step-body">
-        <p className="label">授权上号</p>
-        <h3 id="wizard-title">准备 Claude Max 账号</h3>
+        <p className="label">{t("授权上号")}</p>
+        <h3 id="wizard-title">{t("准备 Claude Max 账号")}</h3>
         <p className="step-lead">
-          一次可生成 1–{MAX_BATCH} 个授权槽位；打开官方链接登录授权后，把回执粘回对应槽位提交入池——全部在本页完成。备注与注册国家会应用到这一批账号。
+          {t("一次可生成 1–{max} 个授权槽位；打开官方链接登录授权后，把回执粘回对应槽位提交入池——全部在本页完成。备注与注册国家会应用到这一批账号。", { max: MAX_BATCH })}
         </p>
         <div className="advanced-fields">
-          <label className="field-label" htmlFor="batch-count">生成槽位数（1–{MAX_BATCH}）</label>
+          <label className="field-label" htmlFor="batch-count">{t("生成槽位数（1–{max}）", { max: MAX_BATCH })}</label>
           <input
             id="batch-count"
             className="text-input"
@@ -572,24 +579,24 @@ function WizardView({
             onChange={(event) => setBatchCount(clampBatch(event.target.value))}
             disabled={loading}
           />
-          <label className="field-label" htmlFor="batch-notes">批次备注（可选）</label>
+          <label className="field-label" htmlFor="batch-notes">{t("批次备注（可选）")}</label>
           <input
             id="batch-notes"
             className="text-input"
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="例如 Allen-0826，不要填写 token"
+            placeholder={t("例如 Allen-0826，不要填写 token")}
             maxLength={500}
             disabled={loading}
           />
-          <label className="field-label" htmlFor="batch-country-search">注册国家</label>
+          <label className="field-label" htmlFor="batch-country-search">{t("注册国家")}</label>
           <input
             id="batch-country-search"
             className="text-input"
             value={countryQuery}
             onChange={(event) => setCountryQuery(event.target.value)}
-            placeholder="搜索国家/地区，如 美国 或 US"
-            aria-label="搜索注册国家"
+            placeholder={t("搜索国家/地区，如 美国 或 US")}
+            aria-label={t("搜索注册国家")}
             disabled={loading}
           />
           <select
@@ -598,17 +605,17 @@ function WizardView({
             value={country}
             onChange={(event) => setCountry(event.target.value)}
             disabled={loading}
-            aria-label="注册国家"
+            aria-label={t("注册国家")}
           >
             {countryOptions.map((item) => (
               <option key={item.code} value={item.code}>
-                {item.zh}（{item.code}）
+                {locale === "en" ? `${item.en} (${item.code})` : `${item.zh}（${item.code}）`}
               </option>
             ))}
           </select>
           {proxyAllowed ? (
             <>
-              <label className="field-label" htmlFor="batch-proxy">出口代理（可选）</label>
+              <label className="field-label" htmlFor="batch-proxy">{t("出口代理（可选）")}</label>
               <div className="flow-actions">
                 <select
                   id="batch-proxy"
@@ -617,7 +624,7 @@ function WizardView({
                   onChange={(event) => setSelectedProxyId(event.target.value)}
                   disabled={loading}
                 >
-                  <option value="">默认（由 Sub2API 分配）</option>
+                  <option value="">{t("默认（由 Sub2API 分配）")}</option>
                   {proxies.map((proxy) => (
                     <option key={proxy.id} value={String(proxy.id)}>
                       {proxyLabel(proxy)}
@@ -630,7 +637,7 @@ function WizardView({
                   onClick={onTestProxy}
                   disabled={!selectedProxyId || proxyTest.status === "testing"}
                 >
-                  {proxyTest.status === "testing" ? "检测中..." : "检测代理"}
+                  {proxyTest.status === "testing" ? t("检测中...") : t("检测代理")}
                 </button>
               </div>
               {proxyTest.message ? (
@@ -644,11 +651,11 @@ function WizardView({
         </div>
         <div className="wizard-actions">
           <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading}>
-            {loading ? "正在生成..." : `生成 ${batchCount} 个授权槽位`}
+            {loading ? t("正在生成...") : t("生成 {n} 个授权槽位", { n: batchCount })}
           </button>
           {activeSlots.length ? (
             <button className="secondary-button" type="button" onClick={onCancel} disabled={loading}>
-              取消（清空 {activeSlots.length} 个待处理）
+              {t("取消（清空 {n} 个待处理）", { n: activeSlots.length })}
             </button>
           ) : null}
         </div>
@@ -656,9 +663,9 @@ function WizardView({
 
       {activeSlots.length ? (
         <div className="step-body">
-          <p className="label">授权与回执</p>
-          <h3>完成授权并提交</h3>
-          <p className="step-lead">逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。</p>
+          <p className="label">{t("授权与回执")}</p>
+          <h3>{t("完成授权并提交")}</h3>
+          <p className="step-lead">{t("逐个打开官方授权链接登录同意，把成功页的 code#state（或回调 URL）粘回对应槽位提交。每个槽位独立入池。")}</p>
           <div className="slot-cards">
             {activeSlots.map((slot, index) => (
               <SlotFlowCard
@@ -675,7 +682,7 @@ function WizardView({
           {doneCount ? (
             <div className="wizard-actions">
               <button className="secondary-button" type="button" onClick={onClearFinished}>
-                清理已完成（{doneCount}）
+                {t("清理已完成（{n}）", { n: doneCount })}
               </button>
             </div>
           ) : null}
@@ -703,18 +710,18 @@ const PROXY_TABS: { id: ProxyKind; label: string; placeholder: string }[] = [
  * a scheme prefix, which must match the active tab (http↔http/https, socks5↔socks5/socks5h).
  * The tab locks the protocol, so a bare address never guesses the wrong scheme.
  */
-function parseProxyString(raw: string, tab: ProxyKind): { ok: true; value: ParsedProxy } | { ok: false; message: string } {
+function parseProxyString(raw: string, tab: ProxyKind, t: TFn): { ok: true; value: ParsedProxy } | { ok: false; message: string } {
   let text = raw.trim();
-  if (!text) return { ok: false, message: "请粘贴代理地址。" };
+  if (!text) return { ok: false, message: t("请粘贴代理地址。") };
 
   const scheme = text.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
   if (scheme) {
     const name = scheme[1].toLowerCase();
     const family: ProxyKind | null =
       name === "http" || name === "https" ? "http" : name === "socks5" || name === "socks5h" ? "socks5" : null;
-    if (!family) return { ok: false, message: `无法识别的协议头 ${name}://。` };
+    if (!family) return { ok: false, message: t("无法识别的协议头 {name}://。", { name }) };
     if (family !== tab) {
-      return { ok: false, message: `协议头 ${name}:// 与所选「${tab === "http" ? "HTTP" : "SOCKS5"}」不一致。` };
+      return { ok: false, message: t("协议头 {name}:// 与所选「{tab}」不一致。", { name, tab: tab === "http" ? "HTTP" : "SOCKS5" }) };
     }
     text = text.slice(scheme[0].length);
   }
@@ -729,11 +736,11 @@ function parseProxyString(raw: string, tab: ProxyKind): { ok: true; value: Parse
     const cred = text.slice(0, at);
     const hostPort = text.slice(at + 1);
     const ci = cred.indexOf(":");
-    if (ci < 0) return { ok: false, message: "认证部分应为 user:pass。" };
+    if (ci < 0) return { ok: false, message: t("认证部分应为 user:pass。") };
     username = cred.slice(0, ci);
     password = cred.slice(ci + 1);
     const hp = hostPort.split(":");
-    if (hp.length !== 2) return { ok: false, message: "地址部分应为 host:port。" };
+    if (hp.length !== 2) return { ok: false, message: t("地址部分应为 host:port。") };
     [host, portText] = hp;
   } else {
     const parts = text.split(":");
@@ -742,15 +749,15 @@ function parseProxyString(raw: string, tab: ProxyKind): { ok: true; value: Parse
     } else if (parts.length === 4) {
       [host, portText, username, password] = parts;
     } else {
-      return { ok: false, message: "格式应为 host:port、host:port:user:pass 或 user:pass@host:port。" };
+      return { ok: false, message: t("格式应为 host:port、host:port:user:pass 或 user:pass@host:port。") };
     }
   }
 
   host = host.trim();
   const port = Number(portText.trim());
-  if (!host) return { ok: false, message: "缺少主机地址。" };
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, message: "端口无效（1–65535）。" };
-  if (username !== undefined && username.trim() === "") return { ok: false, message: "用户名不能为空（或整体省略认证）。" };
+  if (!host) return { ok: false, message: t("缺少主机地址。") };
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, message: t("端口无效（1–65535）。") };
+  if (username !== undefined && username.trim() === "") return { ok: false, message: t("用户名不能为空（或整体省略认证）。") };
 
   return { ok: true, value: { protocol: tab, host, port, username: username?.trim() || undefined, password: password || undefined } };
 }
@@ -762,6 +769,7 @@ function CustomProxyForm({
   onAdd: (input: { name: string; protocol: string; host: string; port: number; username?: string; password?: string }) => Promise<{ ok: boolean; message: string }>;
   disabled: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<ProxyKind>("http");
   const [raw, setRaw] = useState("");
@@ -769,8 +777,8 @@ function CustomProxyForm({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const parsed = useMemo(() => parseProxyString(raw, tab), [raw, tab]);
-  const active = PROXY_TABS.find((t) => t.id === tab) ?? PROXY_TABS[0];
+  const parsed = useMemo(() => parseProxyString(raw, tab, t), [raw, tab, t]);
+  const active = PROXY_TABS.find((opt) => opt.id === tab) ?? PROXY_TABS[0];
 
   async function submit() {
     if (!parsed.ok) {
@@ -799,71 +807,71 @@ function CustomProxyForm({
   if (!open) {
     return (
       <button className="secondary-button" type="button" onClick={() => setOpen(true)} disabled={disabled}>
-        ＋ 添加自定义代理
+        {t("＋ 添加自定义代理")}
       </button>
     );
   }
 
   return (
     <div className="custom-proxy">
-      <div className="proxy-tabs" role="tablist" aria-label="代理协议">
-        {PROXY_TABS.map((t) => (
+      <div className="proxy-tabs" role="tablist" aria-label={t("代理协议")}>
+        {PROXY_TABS.map((opt) => (
           <button
-            key={t.id}
+            key={opt.id}
             type="button"
             role="tab"
-            aria-selected={tab === t.id}
-            className={tab === t.id ? "is-active" : ""}
-            onClick={() => setTab(t.id)}
+            aria-selected={tab === opt.id}
+            className={tab === opt.id ? "is-active" : ""}
+            onClick={() => setTab(opt.id)}
             disabled={busy}
           >
-            {t.label}
+            {opt.label}
           </button>
         ))}
       </div>
 
-      <label className="field-label" htmlFor="proxy-paste">粘贴 {active.label} 代理</label>
+      <label className="field-label" htmlFor="proxy-paste">{t("粘贴 {label} 代理", { label: active.label })}</label>
       <input
         id="proxy-paste"
         className="text-input"
         value={raw}
         onChange={(event) => setRaw(event.target.value)}
-        placeholder={active.placeholder}
+        placeholder={t(active.placeholder)}
         autoComplete="off"
         spellCheck={false}
         disabled={busy}
-        aria-label={`${active.label} 代理地址`}
+        aria-label={t("{label} 代理地址", { label: active.label })}
       />
 
       {raw.trim() ? (
         parsed.ok ? (
           <p className="proxy-check is-ok">
             ✓ {parsed.value.protocol}://{parsed.value.host}:{parsed.value.port}
-            {parsed.value.username ? ` · 认证 ${parsed.value.username}` : " · 无认证"}
+            {parsed.value.username ? ` · ${t("认证 {user}", { user: parsed.value.username })}` : ` · ${t("无认证")}`}
           </p>
         ) : (
           <p className="proxy-check is-error">✕ {parsed.message}</p>
         )
       ) : (
-        <p className="proxy-check">选项卡锁定协议，支持 host:port、host:port:user:pass、user:pass@host:port。</p>
+        <p className="proxy-check">{t("选项卡锁定协议，支持 host:port、host:port:user:pass、user:pass@host:port。")}</p>
       )}
 
       <input
         className="text-input"
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="名称（可选）"
+        placeholder={t("名称（可选）")}
         maxLength={80}
         disabled={busy}
-        aria-label="名称"
+        aria-label={t("名称")}
       />
 
       <div className="flow-actions">
         <button className="oauth-button" type="button" onClick={submit} disabled={busy || !parsed.ok}>
-          {busy ? "创建中..." : "创建并选用"}
+          {busy ? t("创建中...") : t("创建并选用")}
         </button>
         <button className="secondary-button" type="button" onClick={() => { setOpen(false); setResult(null); }} disabled={busy}>
-          收起
+          {t("收起")}
         </button>
       </div>
       {result ? <p className={result.ok ? "slot-result is-ok" : "slot-result is-error"}>{result.message}</p> : null}
@@ -886,15 +894,16 @@ function SlotFlowCard({
   onChange: (code: string) => void;
   onSubmit: () => void;
 }) {
+  const { t } = useI18n();
   const expired = isExpired(slot.expiresAt, now);
   const submitting = slot.status === "submitting";
   return (
     <div className="flow-card">
       <div className="flow-card-head">
         <SlotBadge slot={slot} now={now} />
-        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
+        <span className="flow-id">{t("槽位 #{n} · {id}", { n: index + 1, id: slot.flowId.slice(0, 8) })}</span>
       </div>
-      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>① 官方授权链接</label>
+      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>{t("① 官方授权链接")}</label>
       <input
         id={`auth-url-${slot.flowId}`}
         className="text-input auth-url-input"
@@ -904,25 +913,25 @@ function SlotFlowCard({
       />
       <div className="flow-actions">
         <a className="oauth-button" href={slot.authUrl} target="_blank" rel="noreferrer" aria-disabled={expired}>
-          打开官方授权页 ↗
+          {t("打开官方授权页 ↗")}
         </a>
         <button className="secondary-button" type="button" onClick={() => onCopy(slot.authUrl)}>
-          复制链接
+          {t("复制链接")}
         </button>
       </div>
-      <label className="field-label" htmlFor={`code-${slot.flowId}`}>② 授权回执（code#state 或回调 URL）</label>
+      <label className="field-label" htmlFor={`code-${slot.flowId}`}>{t("② 授权回执（code#state 或回调 URL）")}</label>
       <textarea
         id={`code-${slot.flowId}`}
         className="text-input textarea-input"
         value={slot.code}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="粘贴完整的 code#state 或回调 URL"
+        placeholder={t("粘贴完整的 code#state 或回调 URL")}
         rows={3}
         disabled={submitting}
       />
       <div className="flow-actions">
         <button className="oauth-button" type="button" onClick={onSubmit} disabled={submitting || !slot.code.trim()}>
-          {submitting ? "正在兑换并入池..." : "提交回执并创建账号"}
+          {submitting ? t("正在兑换并入池...") : t("提交回执并创建账号")}
         </button>
       </div>
       {slot.result ? (
@@ -933,20 +942,22 @@ function SlotFlowCard({
 }
 
 function SlotBadge({ slot, now }: { slot: Slot; now: number }) {
-  if (slot.status === "done") return <span className="flow-badge">已完成</span>;
+  const { t } = useI18n();
+  if (slot.status === "done") return <span className="flow-badge">{t("已完成")}</span>;
   const expired = isExpired(slot.expiresAt, now);
-  return <span className={`flow-badge ${expired ? "is-expired" : ""}`}>{expired ? "已过期" : `剩余 ${formatRemaining(slot.expiresAt, now)}`}</span>;
+  return <span className={`flow-badge ${expired ? "is-expired" : ""}`}>{expired ? t("已过期") : t("剩余 {time}", { time: formatRemaining(slot.expiresAt, now) })}</span>;
 }
 
 function SlotAuthCard({ slot, index, now, onCopy }: { slot: Slot; index: number; now: number; onCopy: (value: string) => void }) {
+  const { t } = useI18n();
   const expired = isExpired(slot.expiresAt, now);
   return (
     <div className="flow-card">
       <div className="flow-card-head">
         <SlotBadge slot={slot} now={now} />
-        <span className="flow-id">槽位 #{index + 1} · {slot.flowId.slice(0, 8)}</span>
+        <span className="flow-id">{t("槽位 #{n} · {id}", { n: index + 1, id: slot.flowId.slice(0, 8) })}</span>
       </div>
-      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>官方授权链接</label>
+      <label className="field-label" htmlFor={`auth-url-${slot.flowId}`}>{t("官方授权链接")}</label>
       <input
         id={`auth-url-${slot.flowId}`}
         className="text-input auth-url-input"
@@ -956,10 +967,10 @@ function SlotAuthCard({ slot, index, now, onCopy }: { slot: Slot; index: number;
       />
       <div className="flow-actions">
         <a className="oauth-button" href={slot.authUrl} target="_blank" rel="noreferrer" aria-disabled={expired}>
-          打开官方授权页 ↗
+          {t("打开官方授权页 ↗")}
         </a>
         <button className="secondary-button" type="button" onClick={() => onCopy(slot.authUrl)}>
-          复制链接
+          {t("复制链接")}
         </button>
       </div>
     </div>
@@ -979,15 +990,16 @@ function PendingView({
   onNew: () => void;
   onCopy: (value: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="list-panel">
       <div className="panel-heading-row">
         <div>
-          <p className="label">待处理槽位</p>
-          <h3>授权槽位</h3>
+          <p className="label">{t("待处理槽位")}</p>
+          <h3>{t("授权槽位")}</h3>
         </div>
         <button className="secondary-button" type="button" onClick={onNew}>
-          新建槽位
+          {t("新建槽位")}
         </button>
       </div>
       {slots.length ? (
@@ -999,27 +1011,28 @@ function PendingView({
           </div>
           <div className="wizard-actions">
             <button className="oauth-button" type="button" onClick={onContinue}>
-              去提交回执
+              {t("去提交回执")}
             </button>
           </div>
         </>
       ) : (
-        <p className="empty-state">当前没有待处理槽位。</p>
+        <p className="empty-state">{t("当前没有待处理槽位。")}</p>
       )}
     </section>
   );
 }
 
 function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSummary[]; loading: boolean; onRefresh: () => void }) {
+  const { t } = useI18n();
   return (
     <section className="list-panel">
       <div className="panel-heading-row">
         <div>
-          <p className="label">账号池</p>
-          <h3>已入池账号</h3>
+          <p className="label">{t("账号池")}</p>
+          <h3>{t("已入池账号")}</h3>
         </div>
         <button className="secondary-button" type="button" onClick={onRefresh} disabled={loading}>
-          {loading ? "刷新中..." : "刷新列表"}
+          {loading ? t("刷新中...") : t("刷新列表")}
         </button>
       </div>
       {accounts.length ? (
@@ -1029,7 +1042,7 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
             return (
               <article className="account-row" key={`${account.id}-${account.createdAt || account.name}`}>
                 <div className="account-main">
-                  <strong>{account.email || account.displayName || account.name || "未命名账号"}</strong>
+                  <strong>{account.email || account.displayName || account.name || t("未命名账号")}</strong>
                   <span>
                     {account.displayName || account.name || "Claude Code Max"}
                     {account.subscription ? ` · ${account.subscription}` : ""}
@@ -1037,7 +1050,7 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
                 </div>
                 <div className="account-meta">
                   <span className={`account-status ${alive ? "is-alive" : "is-dead"}`}>
-                    {alive ? "存活" : account.deadCause || account.status || "失效"}
+                    {alive ? t("存活") : account.deadCause || account.status || t("失效")}
                   </span>
                   <span>
                     {account.platform} / {account.type}
@@ -1049,7 +1062,7 @@ function AccountsView({ accounts, loading, onRefresh }: { accounts: AccountSumma
           })}
         </div>
       ) : (
-        <p className="empty-state">暂无已入池账号。完成一次授权后，账号会显示在这里。</p>
+        <p className="empty-state">{t("暂无已入池账号。完成一次授权后，账号会显示在这里。")}</p>
       )}
     </section>
   );
@@ -1081,21 +1094,21 @@ function formatRemaining(expiresAt: string, now: number) {
   return `${minutes}:${seconds}`;
 }
 
-function readApiError(status: number, error: string | undefined, fallback: string) {
-  if (status === 401) return "管理员会话已失效，请重新登录。";
-  if (status === 429) return "待处理槽位过多，请先完成或清理已有槽位。";
+function readApiError(t: TFn, status: number, error: string | undefined, fallback: string) {
+  if (status === 401) return t("管理员会话已失效，请重新登录。");
+  if (status === 429) return t("待处理槽位过多，请先完成或清理已有槽位。");
   if (status === 502 && error === "sub2api_auth_failed") {
-    return "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。";
+    return t("Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。");
   }
   if (status === 403) {
     return error === "user_provisioning_disabled"
-      ? "超级管理员已暂停普通用户上号，请联系管理员。"
-      : "当前角色或系统开关不允许执行此操作。";
+      ? t("超级管理员已暂停普通用户上号，请联系管理员。")
+      : t("当前角色或系统开关不允许执行此操作。");
   }
-  if (status === 410) return "授权槽位已过期，请重新生成。";
-  if (status === 503 && error === "provisioning_disabled") return "超级管理员已暂停 Claude 上号流程。";
-  if (status === 503 && error === "backend_not_configured") return "目标后端尚未配置，请检查对应环境变量。";
-  if (status === 503) return "服务尚未配置完成，请检查 .env.local。";
+  if (status === 410) return t("授权槽位已过期，请重新生成。");
+  if (status === 503 && error === "provisioning_disabled") return t("超级管理员已暂停 Claude 上号流程。");
+  if (status === 503 && error === "backend_not_configured") return t("目标后端尚未配置，请检查对应环境变量。");
+  if (status === 503) return t("服务尚未配置完成，请检查 .env.local。");
   return error || fallback;
 }
 

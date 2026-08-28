@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { customRef } from "@/lib/backends/kinds";
+import { useI18n } from "@/lib/i18n/context";
 
 type SingletonKind = "sub2api" | "newapi" | "oneapi";
 
@@ -63,6 +64,7 @@ function newGatewayId(): string {
 }
 
 export default function BackendConfigPanel() {
+  const { t } = useI18n();
   const router = useRouter();
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [tokens, setTokens] = useState<TokenInputs>(emptyTokens);
@@ -84,17 +86,17 @@ export default function BackendConfigPanel() {
       if (response.status === 401) return redirectToLogin();
       const payload = (await response.json().catch(() => ({}))) as BackendConfig & { error?: string };
       if (!response.ok || !payload.sub2api) {
-        setError("读取后端配置失败。");
+        setError(t("读取后端配置失败。"));
         return;
       }
       setConfig({ ...payload, customs: Array.isArray(payload.customs) ? payload.customs : [] });
       setTokens(emptyTokens);
     } catch {
-      setError("无法读取后端配置。");
+      setError(t("无法读取后端配置。"));
     } finally {
       setLoading(false);
     }
-  }, [redirectToLogin]);
+  }, [redirectToLogin, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
@@ -135,7 +137,7 @@ export default function BackendConfigPanel() {
       current
         ? {
             ...current,
-            customs: [...current.customs, { id, ref: customRef(id), name: "自建网关", url: "", hasToken: false, listUrl: "", configured: false }],
+            customs: [...current.customs, { id, ref: customRef(id), name: t("自建网关"), url: "", hasToken: false, listUrl: "", configured: false }],
           }
         : current,
     );
@@ -204,13 +206,13 @@ export default function BackendConfigPanel() {
       if (response.status === 401) return redirectToLogin();
       const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) {
-        setError(payload.error === "forbidden" ? "只有超级管理员可以修改后端配置。" : "保存后端配置失败。");
+        setError(payload.error === "forbidden" ? t("只有超级管理员可以修改后端配置。") : t("保存后端配置失败。"));
         return;
       }
-      setMessage("后端配置已保存。");
+      setMessage(t("后端配置已保存。"));
       void refresh();
     } catch {
-      setError("保存后端配置失败。");
+      setError(t("保存后端配置失败。"));
     } finally {
       setSaving(false);
     }
@@ -220,24 +222,24 @@ export default function BackendConfigPanel() {
     <section className="account-management" aria-labelledby="backend-config-title">
       <div className="management-heading">
         <div>
-          <p className="label">多平台后端</p>
-          <h3 id="backend-config-title">上号目标平台配置</h3>
+          <p className="label">{t("多平台后端")}</p>
+          <h3 id="backend-config-title">{t("上号目标平台配置")}</h3>
         </div>
         <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading || saving}>
-          {loading ? "读取中..." : "刷新"}
+          {loading ? t("读取中...") : t("刷新")}
         </button>
       </div>
 
       {!config ? (
-        <p className="empty-state">{loading ? "正在读取后端配置..." : "暂无后端配置。"}</p>
+        <p className="empty-state">{loading ? t("正在读取后端配置...") : t("暂无后端配置。")}</p>
       ) : (
         <>
           <div className="management-form">
             <div>
-              <p className="management-kicker">默认平台与启用范围</p>
-              <p className="management-help">默认平台用于向导未选择时；启用的平台会出现在授权向导顶部的目标平台里。</p>
+              <p className="management-kicker">{t("默认平台与启用范围")}</p>
+              <p className="management-help">{t("默认平台用于向导未选择时；启用的平台会出现在授权向导顶部的目标平台里。")}</p>
             </div>
-            <label className="field-label" htmlFor="default-backend">默认平台</label>
+            <label className="field-label" htmlFor="default-backend">{t("默认平台")}</label>
             <select
               id="default-backend"
               className="text-input"
@@ -249,15 +251,15 @@ export default function BackendConfigPanel() {
                 <option key={kind} value={kind}>{label}</option>
               ))}
               {config.customs.map((gateway) => (
-                <option key={gateway.id} value={gateway.ref}>{gateway.name || "自建网关"}</option>
+                <option key={gateway.id} value={gateway.ref}>{gateway.name || t("自建网关")}</option>
               ))}
             </select>
             <div className="settings-panel">
               {SINGLETONS.map(({ kind, label }) => (
                 <label className={`setting-toggle ${saving ? "is-disabled" : ""}`} key={kind}>
                   <span>
-                    启用 {label}
-                    {config.configured[kind] ? "" : "（未配置）"}
+                    {t("启用 {label}", { label })}
+                    {config.configured[kind] ? "" : t("（未配置）")}
                   </span>
                   <input
                     type="checkbox"
@@ -272,32 +274,32 @@ export default function BackendConfigPanel() {
           </div>
 
           <div className="management-grid">
-            <PlatformCard title="Sub2API（同时也是 Claude OAuth 代理）" configured={config.configured.sub2api}>
-              <Field label="地址 Base URL">
+            <PlatformCard title={t("Sub2API（同时也是 Claude OAuth 代理）")} configured={config.configured.sub2api}>
+              <Field label={t("地址 Base URL")}>
                 <input className="text-input" value={config.sub2api.baseUrl} onChange={(e) => patchPlatform("sub2api", { baseUrl: e.target.value })} placeholder="https://sub2api.example.com" disabled={saving} />
               </Field>
-              <Field label="管理令牌">
-                <TokenInput has={config.sub2api.hasAdminToken} value={tokens.sub2api} onChange={(v) => setTokens((t) => ({ ...t, sub2api: v }))} disabled={saving} />
+              <Field label={t("管理令牌")}>
+                <TokenInput has={config.sub2api.hasAdminToken} value={tokens.sub2api} onChange={(v) => setTokens((prev) => ({ ...prev, sub2api: v }))} disabled={saving} />
               </Field>
-              <Field label="默认代理 ID（可选）">
-                <input className="text-input" type="number" value={config.sub2api.proxyId ?? ""} onChange={(e) => patchPlatform("sub2api", { proxyId: e.target.value ? Number(e.target.value) : null })} placeholder="留空由 Sub2API 分配" disabled={saving} />
+              <Field label={t("默认代理 ID（可选）")}>
+                <input className="text-input" type="number" value={config.sub2api.proxyId ?? ""} onChange={(e) => patchPlatform("sub2api", { proxyId: e.target.value ? Number(e.target.value) : null })} placeholder={t("留空由 Sub2API 分配")} disabled={saving} />
               </Field>
             </PlatformCard>
 
             <PlatformCard title="new-api" configured={config.configured.newapi}>
-              <Field label="地址 Base URL">
+              <Field label={t("地址 Base URL")}>
                 <input className="text-input" value={config.newapi.baseUrl} onChange={(e) => patchPlatform("newapi", { baseUrl: e.target.value })} placeholder="https://newapi.example.com" disabled={saving} />
               </Field>
-              <Field label="管理令牌（创建渠道用）">
-                <TokenInput has={config.newapi.hasAdminToken} value={tokens.newapi} onChange={(v) => setTokens((t) => ({ ...t, newapi: v }))} disabled={saving} />
+              <Field label={t("管理令牌（创建渠道用）")}>
+                <TokenInput has={config.newapi.hasAdminToken} value={tokens.newapi} onChange={(v) => setTokens((prev) => ({ ...prev, newapi: v }))} disabled={saving} />
               </Field>
-              <Field label="Anthropic API Key（sk-ant-，写入渠道）">
-                <TokenInput has={config.newapi.hasApiKey} value={tokens.newapiApiKey} onChange={(v) => setTokens((t) => ({ ...t, newapiApiKey: v }))} disabled={saving} />
+              <Field label={t("Anthropic API Key（sk-ant-，写入渠道）")}>
+                <TokenInput has={config.newapi.hasApiKey} value={tokens.newapiApiKey} onChange={(v) => setTokens((prev) => ({ ...prev, newapiApiKey: v }))} disabled={saving} />
               </Field>
-              <Field label="New-Api-User（用户 ID，可选）">
-                <input className="text-input" value={config.newapi.userId} onChange={(e) => patchPlatform("newapi", { userId: e.target.value })} placeholder="例如 1" disabled={saving} />
+              <Field label={t("New-Api-User（用户 ID，可选）")}>
+                <input className="text-input" value={config.newapi.userId} onChange={(e) => patchPlatform("newapi", { userId: e.target.value })} placeholder={t("例如 1")} disabled={saving} />
               </Field>
-              <Field label="渠道类型 / 模型">
+              <Field label={t("渠道类型 / 模型")}>
                 <div className="flow-actions">
                   <input className="text-input" type="number" value={config.newapi.channelType} onChange={(e) => patchPlatform("newapi", { channelType: Number(e.target.value) })} disabled={saving} />
                   <input className="text-input" value={config.newapi.models} onChange={(e) => patchPlatform("newapi", { models: e.target.value })} placeholder="claude-3-5-sonnet-latest" disabled={saving} />
@@ -306,16 +308,16 @@ export default function BackendConfigPanel() {
             </PlatformCard>
 
             <PlatformCard title="one-api" configured={config.configured.oneapi}>
-              <Field label="地址 Base URL">
+              <Field label={t("地址 Base URL")}>
                 <input className="text-input" value={config.oneapi.baseUrl} onChange={(e) => patchPlatform("oneapi", { baseUrl: e.target.value })} placeholder="https://oneapi.example.com" disabled={saving} />
               </Field>
-              <Field label="管理令牌（创建渠道用）">
-                <TokenInput has={config.oneapi.hasAdminToken} value={tokens.oneapi} onChange={(v) => setTokens((t) => ({ ...t, oneapi: v }))} disabled={saving} />
+              <Field label={t("管理令牌（创建渠道用）")}>
+                <TokenInput has={config.oneapi.hasAdminToken} value={tokens.oneapi} onChange={(v) => setTokens((prev) => ({ ...prev, oneapi: v }))} disabled={saving} />
               </Field>
-              <Field label="Anthropic API Key（sk-ant-，写入渠道）">
-                <TokenInput has={config.oneapi.hasApiKey} value={tokens.oneapiApiKey} onChange={(v) => setTokens((t) => ({ ...t, oneapiApiKey: v }))} disabled={saving} />
+              <Field label={t("Anthropic API Key（sk-ant-，写入渠道）")}>
+                <TokenInput has={config.oneapi.hasApiKey} value={tokens.oneapiApiKey} onChange={(v) => setTokens((prev) => ({ ...prev, oneapiApiKey: v }))} disabled={saving} />
               </Field>
-              <Field label="渠道类型 / 模型">
+              <Field label={t("渠道类型 / 模型")}>
                 <div className="flow-actions">
                   <input className="text-input" type="number" value={config.oneapi.channelType} onChange={(e) => patchPlatform("oneapi", { channelType: Number(e.target.value) })} disabled={saving} />
                   <input className="text-input" value={config.oneapi.models} onChange={(e) => patchPlatform("oneapi", { models: e.target.value })} placeholder="claude-3-5-sonnet-latest" disabled={saving} />
@@ -327,11 +329,11 @@ export default function BackendConfigPanel() {
           <div className="gateway-section">
             <div className="management-heading">
               <div>
-                <p className="management-kicker">自建网关（可多个）</p>
-                <p className="management-help">每个网关独立配置与启用，会作为独立目标平台出现在向导里。</p>
+                <p className="management-kicker">{t("自建网关（可多个）")}</p>
+                <p className="management-help">{t("每个网关独立配置与启用，会作为独立目标平台出现在向导里。")}</p>
               </div>
               <button className="secondary-button" type="button" onClick={addGateway} disabled={saving}>
-                + 添加自建网关
+                {t("+ 添加自建网关")}
               </button>
             </div>
 
@@ -340,23 +342,23 @@ export default function BackendConfigPanel() {
                 {config.customs.map((gateway) => (
                   <div className="settings-panel" key={gateway.id}>
                     <div className="flow-card-head">
-                      <p className="management-kicker">{gateway.name || "自建网关"}</p>
-                      <span className={`account-status ${gateway.configured ? "is-alive" : "is-dead"}`}>{gateway.configured ? "已配置" : "未配置"}</span>
+                      <p className="management-kicker">{gateway.name || t("自建网关")}</p>
+                      <span className={`account-status ${gateway.configured ? "is-alive" : "is-dead"}`}>{gateway.configured ? t("已配置") : t("未配置")}</span>
                     </div>
-                    <Field label="名称">
-                      <input className="text-input" value={gateway.name} onChange={(e) => patchGateway(gateway.id, { name: e.target.value })} placeholder="例如 网关-A" disabled={saving} />
+                    <Field label={t("名称")}>
+                      <input className="text-input" value={gateway.name} onChange={(e) => patchGateway(gateway.id, { name: e.target.value })} placeholder={t("例如 网关-A")} disabled={saving} />
                     </Field>
-                    <Field label="创建账号 URL">
+                    <Field label={t("创建账号 URL")}>
                       <input className="text-input" value={gateway.url} onChange={(e) => patchGateway(gateway.id, { url: e.target.value })} placeholder="https://gateway.example.com/accounts" disabled={saving} />
                     </Field>
-                    <Field label="令牌（可选）">
+                    <Field label={t("令牌（可选）")}>
                       <TokenInput has={gateway.hasToken} value={tokens.customs[gateway.id] ?? ""} onChange={(v) => setGatewayToken(gateway.id, v)} disabled={saving} />
                     </Field>
-                    <Field label="账号列表 URL（可选）">
-                      <input className="text-input" value={gateway.listUrl} onChange={(e) => patchGateway(gateway.id, { listUrl: e.target.value })} placeholder="留空则不展示账号池" disabled={saving} />
+                    <Field label={t("账号列表 URL（可选）")}>
+                      <input className="text-input" value={gateway.listUrl} onChange={(e) => patchGateway(gateway.id, { listUrl: e.target.value })} placeholder={t("留空则不展示账号池")} disabled={saving} />
                     </Field>
                     <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
-                      <span>启用该网关</span>
+                      <span>{t("启用该网关")}</span>
                       <input
                         type="checkbox"
                         checked={config.enabled.includes(gateway.ref)}
@@ -366,19 +368,19 @@ export default function BackendConfigPanel() {
                       <i aria-hidden="true" />
                     </label>
                     <button className="secondary-button" type="button" onClick={() => removeGateway(gateway.id)} disabled={saving}>
-                      移除该网关
+                      {t("移除该网关")}
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="empty-state">还没有自建网关，点「添加自建网关」新增。</p>
+              <p className="empty-state">{t("还没有自建网关，点「添加自建网关」新增。")}</p>
             )}
           </div>
 
           <div className="wizard-actions">
             <button className="oauth-button" type="button" onClick={() => void save()} disabled={saving}>
-              {saving ? "保存中..." : "保存后端配置"}
+              {saving ? t("保存中...") : t("保存后端配置")}
             </button>
           </div>
         </>
@@ -399,11 +401,12 @@ function orderRefs(refs: Set<string>, customs: CustomGatewayView[]): string[] {
 }
 
 function PlatformCard({ title, configured, children }: { title: string; configured: boolean; children: React.ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="settings-panel">
       <div className="flow-card-head">
         <p className="management-kicker">{title}</p>
-        <span className={`account-status ${configured ? "is-alive" : "is-dead"}`}>{configured ? "已配置" : "未配置"}</span>
+        <span className={`account-status ${configured ? "is-alive" : "is-dead"}`}>{configured ? t("已配置") : t("未配置")}</span>
       </div>
       {children}
     </div>
@@ -420,13 +423,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function TokenInput({ has, value, onChange, disabled }: { has: boolean; value: string; onChange: (value: string) => void; disabled: boolean }) {
+  const { t } = useI18n();
   return (
     <input
       className="text-input"
       type="password"
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      placeholder={has ? "已配置，留空不修改" : "尚未配置"}
+      placeholder={has ? t("已配置，留空不修改") : t("尚未配置")}
       autoComplete="off"
       disabled={disabled}
     />

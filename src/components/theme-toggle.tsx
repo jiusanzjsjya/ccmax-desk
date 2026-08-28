@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useI18n } from "@/lib/i18n/context";
+
 type Mode = "light" | "dark" | "system";
 
 const STORAGE_KEY = "ccmax-theme";
@@ -19,6 +21,7 @@ function apply(mode: Mode) {
 }
 
 export default function ThemeToggle() {
+  const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("system");
 
   // Sync the highlighted option from the client-only store after hydration.
@@ -40,7 +43,7 @@ export default function ThemeToggle() {
   }
 
   return (
-    <div className="theme-toggle" role="group" aria-label="配色主题">
+    <div className="theme-toggle" role="group" aria-label={t("配色主题")}>
       {OPTIONS.map((option) => (
         <button
           key={option.mode}
@@ -49,7 +52,7 @@ export default function ThemeToggle() {
           aria-pressed={mode === option.mode}
           onClick={() => choose(option.mode)}
         >
-          {option.label}
+          {t(option.label)}
         </button>
       ))}
     </div>

@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/lib/i18n/context";
+
 export default function LogoutButton() {
+  const { t } = useI18n();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const router = useRouter();
 
@@ -16,7 +19,7 @@ export default function LogoutButton() {
 
   return (
     <button className="secondary-button" type="button" disabled={isLoggingOut} onClick={handleLogout}>
-      {isLoggingOut ? "正在退出..." : "退出当前会话"}
+      {isLoggingOut ? t("正在退出...") : t("退出当前会话")}
     </button>
   );
 }

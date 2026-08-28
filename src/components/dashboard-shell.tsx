@@ -5,11 +5,13 @@ import { useState } from "react";
 import AccountManagementPanel from "@/components/account-management-panel";
 import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
+import LocaleToggle from "@/components/locale-toggle";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
 import SettlementPanel from "@/components/settlement-panel";
 import SystemLogPanel from "@/components/system-log-panel";
 import ThemeToggle from "@/components/theme-toggle";
+import { useI18n } from "@/lib/i18n/context";
 import type { Role } from "@/lib/roles";
 
 type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access" | "settlement" | "logs";
@@ -101,6 +103,7 @@ const NAV: NavItem[] = [
 ];
 
 export default function DashboardShell(props: DashboardShellProps) {
+  const { t } = useI18n();
   const items = NAV.filter((item) => item.visible(props));
   const [active, setActive] = useState<SectionId>("overview");
   const current = items.find((item) => item.id === active) ?? items[0];
@@ -116,8 +119,8 @@ export default function DashboardShell(props: DashboardShellProps) {
           </span>
         </div>
 
-        <p className="rail-kicker">模块</p>
-        <nav className="rail-nav" aria-label="控制台模块">
+        <p className="rail-kicker">{t("模块")}</p>
+        <nav className="rail-nav" aria-label={t("控制台模块")}>
           {items.map((item) => (
             <button
               key={item.id}
@@ -128,8 +131,8 @@ export default function DashboardShell(props: DashboardShellProps) {
             >
               <span className="rail-index">{item.index}</span>
               <span className="rail-label">
-                <b>{item.label}</b>
-                <em>{item.hint}</em>
+                <b>{t(item.label)}</b>
+                <em>{t(item.hint)}</em>
               </span>
             </button>
           ))}
@@ -140,9 +143,10 @@ export default function DashboardShell(props: DashboardShellProps) {
             <span className="avatar">{initial(props.displayName)}</span>
             <span className="meta">
               <strong>{props.displayName}</strong>
-              <span>{props.roleLabel}</span>
+              <span>{t(props.roleLabel)}</span>
             </span>
           </div>
+          <LocaleToggle />
           <ThemeToggle />
           <LogoutButton />
         </div>
@@ -152,8 +156,8 @@ export default function DashboardShell(props: DashboardShellProps) {
         <header className="topbar">
           <div className="topbar-title">
             <span className="idx">/ {current.index}</span>
-            <h1>{current.title}</h1>
-            <em>{current.subtitle}</em>
+            <h1>{t(current.title)}</h1>
+            <em>{t(current.subtitle)}</em>
           </div>
           <SignalPath sub2ApiConfigured={props.sub2ApiConfigured} />
         </header>
@@ -185,94 +189,97 @@ export default function DashboardShell(props: DashboardShellProps) {
 }
 
 function SignalPath({ sub2ApiConfigured, hero = false }: { sub2ApiConfigured: boolean; hero?: boolean }) {
+  const { t } = useI18n();
   return (
-    <div className={`signal-path ${hero ? "is-hero" : ""}`} aria-label="授权信号路径">
+    <div className={`signal-path ${hero ? "is-hero" : ""}`} aria-label={t("授权信号路径")}>
       <span className="signal-node is-source is-live">
         <i className="dot" /> Claude OAuth
       </span>
       <span className="signal-arrow">▶</span>
       <span className={`signal-node ${sub2ApiConfigured ? "is-live" : ""}`}>
-        <i className="dot" /> Sub2API 代理
+        <i className="dot" /> {t("Sub2API 代理")}
       </span>
       <span className="signal-arrow">▶</span>
       <span className="signal-node">
-        <i className="dot" /> 目标平台
+        <i className="dot" /> {t("目标平台")}
       </span>
     </div>
   );
 }
 
 function Overview(props: DashboardShellProps & { onJump: (id: SectionId) => void }) {
+  const { t } = useI18n();
   const { role, roleLabel, sub2ApiConfigured, superadminConfigured, onJump } = props;
 
   return (
     <section className="overview" aria-labelledby="overview-title">
       <div className="overview-hero">
-        <p className="eyebrow">CCMax provisioning bridge</p>
-        <h2 id="overview-title">把已授权的 Claude 账号接入你的账号池</h2>
+        <p className="eyebrow">{t("CCMax provisioning bridge")}</p>
+        <h2 id="overview-title">{t("把已授权的 Claude 账号接入你的账号池")}</h2>
         <p>
-          一条链路：Claude 官方 OAuth 由 Sub2API 代理换取凭据，再写入你选定的目标平台。
-          凭据只在服务端流转，浏览器只接收状态摘要。
+          {t(
+            "一条链路：Claude 官方 OAuth 由 Sub2API 代理换取凭据，再写入你选定的目标平台。凭据只在服务端流转，浏览器只接收状态摘要。",
+          )}
         </p>
         <SignalPath sub2ApiConfigured={sub2ApiConfigured} hero />
       </div>
 
       <div className="stat-grid">
         <div className="stat-card">
-          <p className="k">超级管理员</p>
+          <p className="k">{t("超级管理员")}</p>
           <p className="v">
             <span className={`dot ${superadminConfigured ? "ok" : "bad"}`} />
-            {superadminConfigured ? "已配置" : "未配置"}
+            {superadminConfigured ? t("已配置") : t("未配置")}
           </p>
         </div>
         <div className="stat-card">
-          <p className="k">Sub2API 代理</p>
+          <p className="k">{t("Sub2API 代理")}</p>
           <p className="v">
             <span className={`dot ${sub2ApiConfigured ? "ok" : "warn"}`} />
-            {sub2ApiConfigured ? "已就绪" : "待配置"}
+            {sub2ApiConfigured ? t("已就绪") : t("待配置")}
           </p>
         </div>
         <div className="stat-card">
-          <p className="k">当前身份</p>
+          <p className="k">{t("当前身份")}</p>
           <p className="v">
             <span className="dot ok" />
-            {roleLabel}
+            {t(roleLabel)}
           </p>
         </div>
       </div>
 
       <div className="quick-grid">
         <button type="button" className="quick-card" onClick={() => onJump("provisioning")}>
-          <span className="qk">01 / 上号</span>
-          <strong>授权上号</strong>
-          <span>选目标平台，生成授权槽位，完成官方授权后提交回执入池。</span>
+          <span className="qk">{t("01 / 上号")}</span>
+          <strong>{t("授权上号")}</strong>
+          <span>{t("选目标平台，生成授权槽位，完成官方授权后提交回执入池。")}</span>
         </button>
         {props.canViewAccountPool ? (
           <button type="button" className="quick-card" onClick={() => onJump("pool")}>
-            <span className="qk">02 / 账号池</span>
-            <strong>账号池统揽</strong>
-            <span>查看已入池账号的调度、额度、并发与掉权状态。</span>
+            <span className="qk">{t("02 / 账号池")}</span>
+            <strong>{t("账号池统揽")}</strong>
+            <span>{t("查看已入池账号的调度、额度、并发与掉权状态。")}</span>
           </button>
         ) : null}
         {role === "superadmin" ? (
           <button type="button" className="quick-card" onClick={() => onJump("backends")}>
-            <span className="qk">03 / 平台</span>
-            <strong>多平台后端</strong>
-            <span>配置 Sub2API / new-api / one-api，或添加多个自建网关。</span>
+            <span className="qk">{t("03 / 平台")}</span>
+            <strong>{t("多平台后端")}</strong>
+            <span>{t("配置 Sub2API / new-api / one-api，或添加多个自建网关。")}</span>
           </button>
         ) : null}
         {role !== "user" ? (
           <button type="button" className="quick-card" onClick={() => onJump("access")}>
-            <span className="qk">04 / 权限</span>
-            <strong>账号与权限</strong>
-            <span>创建本地账号、调整系统开关与访问权限。</span>
+            <span className="qk">{t("04 / 权限")}</span>
+            <strong>{t("账号与权限")}</strong>
+            <span>{t("创建本地账号、调整系统开关与访问权限。")}</span>
           </button>
         ) : null}
         {role === "superadmin" ? (
           <button type="button" className="quick-card" onClick={() => onJump("logs")}>
-            <span className="qk">05 / 日志</span>
-            <strong>系统日志</strong>
-            <span>登录、账号变更、系统开关与后端配置的操作审计留痕。</span>
+            <span className="qk">{t("05 / 日志")}</span>
+            <strong>{t("系统日志")}</strong>
+            <span>{t("登录、账号变更、系统开关与后端配置的操作审计留痕。")}</span>
           </button>
         ) : null}
       </div>

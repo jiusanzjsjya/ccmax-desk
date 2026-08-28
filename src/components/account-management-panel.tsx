@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useI18n } from "@/lib/i18n/context";
 import { roleLabel, type Role } from "@/lib/roles";
 
 type AccountManagementPanelProps = {
@@ -47,6 +48,7 @@ const emptySettings: Settings = {
 };
 
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [settings, setSettings] = useState<Settings>(emptySettings);
@@ -78,18 +80,18 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.items) {
-        setError(readManagementError(response.status, payload.error));
+        setError(t(readManagementError(response.status, payload.error)));
         return;
       }
 
       setAccounts(payload.items);
       if (payload.settings) setSettings(payload.settings);
     } catch {
-      setError("无法读取本地账号管理数据。");
+      setError(t("无法读取本地账号管理数据。"));
     } finally {
       setLoading(false);
     }
-  }, [redirectToLogin]);
+  }, [redirectToLogin, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
@@ -111,7 +113,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as { account?: ManagedAccount; message?: string; error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.account) {
-        setError(payload.message || readManagementError(response.status, payload.error));
+        setError(payload.message || t(readManagementError(response.status, payload.error)));
         return;
       }
 
@@ -119,10 +121,10 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       setUsername("");
       setDisplayName("");
       setPassword("");
-      setMessage(`账号 ${payload.account.username} 已创建。`);
+      setMessage(t("账号 {name} 已创建。", { name: payload.account.username }));
       if (isSuperadmin) void refresh();
     } catch {
-      setError("创建账号失败，请检查本地服务状态。");
+      setError(t("创建账号失败，请检查本地服务状态。"));
     } finally {
       setSaving(false);
     }
@@ -142,22 +144,22 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as { account?: ManagedAccount; error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.account) {
-        setError(readManagementError(response.status, payload.error));
+        setError(t(readManagementError(response.status, payload.error)));
         return;
       }
 
       setAccounts((current) => current.map((item) => (item.id === account.id ? payload.account as ManagedAccount : item)));
-      setMessage(`账号 ${account.username} 的权限状态已更新。`);
+      setMessage(t("账号 {name} 的权限状态已更新。", { name: account.username }));
       void refresh();
     } catch {
-      setError("更新账号失败，请检查本地服务状态。");
+      setError(t("更新账号失败，请检查本地服务状态。"));
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteAccount(account: ManagedAccount) {
-    if (!window.confirm(`确定删除本地账号 ${account.username} 吗？这不会删除 Sub2API 账号。`)) return;
+    if (!window.confirm(t("确定删除本地账号 {name} 吗？这不会删除 Sub2API 账号。", { name: account.username }))) return;
     setSaving(true);
     setMessage("");
     setError("");
@@ -167,25 +169,25 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok) {
-        setError(readManagementError(response.status, payload.error));
+        setError(t(readManagementError(response.status, payload.error)));
         return;
       }
 
       setAccounts((current) => current.filter((item) => item.id !== account.id));
-      setMessage(`账号 ${account.username} 已删除。`);
+      setMessage(t("账号 {name} 已删除。", { name: account.username }));
       void refresh();
     } catch {
-      setError("删除账号失败，请检查本地服务状态。");
+      setError(t("删除账号失败，请检查本地服务状态。"));
     } finally {
       setSaving(false);
     }
   }
 
   async function resetPassword(account: ManagedAccount) {
-    const nextPassword = window.prompt(`为 ${account.username} 设置新密码（至少 10 位）`);
+    const nextPassword = window.prompt(t("为 {name} 设置新密码（至少 10 位）", { name: account.username }));
     if (!nextPassword) return;
     if (nextPassword.length < 10) {
-      setError("新密码至少需要 10 位。");
+      setError(t("新密码至少需要 10 位。"));
       return;
     }
 
@@ -201,13 +203,13 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok) {
-        setError(readManagementError(response.status, payload.error));
+        setError(t(readManagementError(response.status, payload.error)));
         return;
       }
-      setMessage(`账号 ${account.username} 的密码已重置。`);
+      setMessage(t("账号 {name} 的密码已重置。", { name: account.username }));
       void refresh();
     } catch {
-      setError("重置密码失败，请检查本地服务状态。");
+      setError(t("重置密码失败，请检查本地服务状态。"));
     } finally {
       setSaving(false);
     }
@@ -229,19 +231,19 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as { settings?: Settings; error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
       if (!response.ok || !payload.settings) {
-        setError(readManagementError(response.status, payload.error));
+        setError(t(readManagementError(response.status, payload.error)));
         await refresh();
         return;
       }
 
       setSettings(payload.settings);
-      setMessage("系统开关已保存。");
+      setMessage(t("系统开关已保存。"));
       void refresh();
       // Some toggles (e.g. the settlement module) gate server-rendered nav items,
       // so re-run the dashboard server component to reflect visibility changes.
       router.refresh();
     } catch {
-      setError("保存系统开关失败。");
+      setError(t("保存系统开关失败。"));
       await refresh();
     } finally {
       setSaving(false);
@@ -252,78 +254,78 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     <section className="account-management" aria-labelledby="account-management-title">
       <div className="management-heading">
         <div>
-          <p className="label">权限控制台</p>
-          <h3 id="account-management-title">账号与权限</h3>
+          <p className="label">{t("权限控制台")}</p>
+          <h3 id="account-management-title">{t("账号与权限")}</h3>
         </div>
-        <span className="role-chip">当前身份 / {roleLabel(role)}</span>
+        <span className="role-chip">{t("当前身份")} / {t(roleLabel(role))}</span>
       </div>
 
       <div className="management-grid">
         <form className="management-form" onSubmit={createUser}>
           <div>
-            <p className="management-kicker">创建本地账号</p>
-            <p className="management-help">账号用于登录本台，不会创建或修改 Claude 账号。</p>
+            <p className="management-kicker">{t("创建本地账号")}</p>
+            <p className="management-help">{t("账号用于登录本台，不会创建或修改 Claude 账号。")}</p>
           </div>
-          <label className="field-label" htmlFor="new-account-username">登录名</label>
+          <label className="field-label" htmlFor="new-account-username">{t("登录名")}</label>
           <input
             id="new-account-username"
             className="text-input"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="例如：ops-user"
+            placeholder={t("例如：ops-user")}
             autoComplete="off"
             disabled={saving}
           />
-          <label className="field-label" htmlFor="new-account-display-name">显示名称</label>
+          <label className="field-label" htmlFor="new-account-display-name">{t("显示名称")}</label>
           <input
             id="new-account-display-name"
             className="text-input"
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="例如：运营一组"
+            placeholder={t("例如：运营一组")}
             autoComplete="off"
             disabled={saving}
           />
           {isSuperadmin ? (
             <>
-              <label className="field-label" htmlFor="new-account-role">角色</label>
+              <label className="field-label" htmlFor="new-account-role">{t("角色")}</label>
               <select id="new-account-role" className="text-input" value={newRole} onChange={(event) => setNewRole(event.target.value as "admin" | "user")} disabled={saving}>
-                <option value="admin">管理员</option>
-                <option value="user">普通用户</option>
+                <option value="admin">{t("管理员")}</option>
+                <option value="user">{t("普通用户")}</option>
               </select>
             </>
           ) : null}
-          <label className="field-label" htmlFor="new-account-password">初始密码</label>
+          <label className="field-label" htmlFor="new-account-password">{t("初始密码")}</label>
           <input
             id="new-account-password"
             className="text-input"
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="至少 10 位"
+            placeholder={t("至少 10 位")}
             autoComplete="new-password"
             disabled={saving}
           />
           <button className="oauth-button" type="submit" disabled={saving || !username || !displayName || password.length < 10}>
-            {saving ? "保存中..." : isSuperadmin ? "创建账号" : "创建普通用户"}
+            {saving ? t("保存中...") : isSuperadmin ? t("创建账号") : t("创建普通用户")}
           </button>
         </form>
 
         <div className="settings-panel">
           <div>
-            <p className="management-kicker">系统开关</p>
-            <p className="management-help">只有超级管理员可以修改全局权限边界。</p>
+            <p className="management-kicker">{t("系统开关")}</p>
+            <p className="management-help">{t("只有超级管理员可以修改全局权限边界。")}</p>
           </div>
-          <SettingToggle label="允许 Claude 上号流程" checked={settings.provisioningEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("provisioningEnabled", value)} />
-          <SettingToggle label="允许管理员创建普通用户" checked={settings.allowAdminCreateUsers} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminCreateUsers", value)} />
-          <SettingToggle label="允许普通用户上号" checked={settings.allowUserProvisioning} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserProvisioning", value)} />
-          <SettingToggle label="管理员查看账号池" checked={settings.allowAdminAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminAccountPoolView", value)} />
-          <SettingToggle label="普通用户查看账号池" checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
-          <SettingToggle label="普通用户仅见本人上号的账号" checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
-          <SettingToggle label="启用数据分析结算模块" checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
-          <SettingToggle label="允许普通用户使用自建代理" checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
-          <SettingToggle label="允许普通用户选择目标平台" checked={settings.allowUserSelectBackend} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserSelectBackend", value)} />
-          <SettingToggle label="允许普通用户结算台账记账" checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
+          <SettingToggle label={t("允许 Claude 上号流程")} checked={settings.provisioningEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("provisioningEnabled", value)} />
+          <SettingToggle label={t("允许管理员创建普通用户")} checked={settings.allowAdminCreateUsers} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminCreateUsers", value)} />
+          <SettingToggle label={t("允许普通用户上号")} checked={settings.allowUserProvisioning} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserProvisioning", value)} />
+          <SettingToggle label={t("管理员查看账号池")} checked={settings.allowAdminAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminAccountPoolView", value)} />
+          <SettingToggle label={t("普通用户查看账号池")} checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
+          <SettingToggle label={t("普通用户仅见本人上号的账号")} checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
+          <SettingToggle label={t("启用数据分析结算模块")} checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
+          <SettingToggle label={t("允许普通用户使用自建代理")} checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
+          <SettingToggle label={t("允许普通用户选择目标平台")} checked={settings.allowUserSelectBackend} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserSelectBackend", value)} />
+          <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
         </div>
       </div>
 
@@ -333,11 +335,11 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       <div className="managed-users">
         <div className="management-section-heading">
           <div>
-            <p className="management-kicker">本地账号</p>
-            <p className="management-help">密码只保存为不可逆哈希，列表不会返回密码。</p>
+            <p className="management-kicker">{t("本地账号")}</p>
+            <p className="management-help">{t("密码只保存为不可逆哈希，列表不会返回密码。")}</p>
           </div>
           <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading || saving}>
-            {loading ? "读取中..." : "刷新列表"}
+            {loading ? t("读取中...") : t("刷新列表")}
           </button>
         </div>
         {accounts.length ? (
@@ -346,31 +348,31 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
               <article className={`managed-user-row ${account.disabled ? "is-disabled" : ""}`} key={account.id}>
                 <div className="managed-user-identity">
                   <strong>{account.displayName}</strong>
-                  <span>@{account.username} · 创建于 {formatDate(account.createdAt)}</span>
+                  <span>@{account.username} · {t("创建于 {date}", { date: formatDate(account.createdAt) })}</span>
                 </div>
                 <div className="managed-user-actions">
                   {isSuperadmin ? (
-                    <select className="role-select" value={account.role} onChange={(event) => void updateAccount(account, { role: event.target.value as "admin" | "user" })} disabled={saving} aria-label={`${account.username} 角色`}>
-                      <option value="admin">管理员</option>
-                      <option value="user">普通用户</option>
+                    <select className="role-select" value={account.role} onChange={(event) => void updateAccount(account, { role: event.target.value as "admin" | "user" })} disabled={saving} aria-label={t("{name} 角色", { name: account.username })}>
+                      <option value="admin">{t("管理员")}</option>
+                      <option value="user">{t("普通用户")}</option>
                     </select>
                   ) : (
-                    <span className="role-chip">{roleLabel(account.role)}</span>
+                    <span className="role-chip">{t(roleLabel(account.role))}</span>
                   )}
-                  <span className={`account-status ${account.disabled ? "is-dead" : "is-alive"}`}>{account.disabled ? "已停用" : "正常"}</span>
+                  <span className={`account-status ${account.disabled ? "is-dead" : "is-alive"}`}>{account.disabled ? t("已停用") : t("正常")}</span>
                   {isSuperadmin ? (
                     <button className="secondary-button compact-button" type="button" onClick={() => void updateAccount(account, { disabled: !account.disabled })} disabled={saving}>
-                      {account.disabled ? "启用" : "停用"}
+                      {account.disabled ? t("启用") : t("停用")}
                     </button>
                   ) : null}
                   {isSuperadmin ? (
                     <button className="danger-button" type="button" onClick={() => void deleteAccount(account)} disabled={saving}>
-                      删除
+                      {t("删除")}
                     </button>
                   ) : null}
                   {isSuperadmin ? (
                     <button className="secondary-button compact-button" type="button" onClick={() => void resetPassword(account)} disabled={saving}>
-                      重置密码
+                      {t("重置密码")}
                     </button>
                   ) : null}
                 </div>
@@ -378,7 +380,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
             ))}
           </div>
         ) : (
-          <p className="empty-state">还没有本地账号。先创建一个管理员或普通用户。</p>
+          <p className="empty-state">{t("还没有本地账号。先创建一个管理员或普通用户。")}</p>
         )}
       </div>
 
