@@ -13,6 +13,7 @@ const settingsSchema = z.object({
   allowAdminAccountPoolView: z.boolean().optional(),
   allowUserAccountPoolView: z.boolean().optional(),
   scopeAccountPoolByOwner: z.boolean().optional(),
+  settlementModuleEnabled: z.boolean().optional(),
 });
 
 export async function GET() {

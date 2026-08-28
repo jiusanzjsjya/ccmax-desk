@@ -25,6 +25,7 @@ export default async function DashboardPage() {
       canViewAccountPool={accountPoolAccess(context)}
       sub2ApiConfigured={sub2Ready}
       superadminConfigured={env.isSuperadminConfigured}
+      settlementEnabled={context.store.settings.settlementModuleEnabled}
     />
   );
 }

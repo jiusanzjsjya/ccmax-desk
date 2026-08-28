@@ -7,11 +7,12 @@ import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
+import SettlementPanel from "@/components/settlement-panel";
 import SystemLogPanel from "@/components/system-log-panel";
 import ThemeToggle from "@/components/theme-toggle";
 import type { Role } from "@/lib/roles";
 
-type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access" | "logs";
+type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access" | "settlement" | "logs";
 
 type DashboardShellProps = {
   role: Role;
@@ -20,6 +21,7 @@ type DashboardShellProps = {
   canViewAccountPool: boolean;
   sub2ApiConfigured: boolean;
   superadminConfigured: boolean;
+  settlementEnabled: boolean;
 };
 
 type NavItem = {
@@ -86,6 +88,15 @@ const NAV: NavItem[] = [
     title: "系统日志",
     subtitle: "登录、账号、系统开关与后端配置的操作审计",
     visible: (p) => p.role === "superadmin",
+  },
+  {
+    id: "settlement",
+    index: "06",
+    label: "数据分析",
+    hint: "用量金额 · 结算台账",
+    title: "数据分析 · 预付结款",
+    subtitle: "按用户统计真实用量金额，记录结算与预付台账（仅记录，不接支付）",
+    visible: (p) => p.settlementEnabled,
   },
 ];
 
@@ -165,6 +176,7 @@ export default function DashboardShell(props: DashboardShellProps) {
               <AccountManagementPanel role={props.role as Exclude<Role, "user">} />
             ) : null}
             {active === "logs" && props.role === "superadmin" ? <SystemLogPanel /> : null}
+            {active === "settlement" && props.settlementEnabled ? <SettlementPanel role={props.role} /> : null}
           </div>
         </main>
       </div>

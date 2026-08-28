@@ -29,6 +29,34 @@ export type SystemSettings = {
   allowUserAccountPoolView: boolean;
   /** When true, a `user` only sees accounts they personally onboarded. */
   scopeAccountPoolByOwner: boolean;
+  /** Master switch for the data-analysis / settlement-ledger module. */
+  settlementModuleEnabled: boolean;
+};
+
+/** A settlement (结算) pays down accrued usage; a prepay (预付) is a top-up that offsets future usage. */
+export type LedgerEntryKind = "settlement" | "prepay";
+
+/**
+ * A manual settlement / prepay bookkeeping record. Amounts are text-only
+ * bookkeeping figures — nothing here touches a real payment gateway.
+ */
+export type LedgerEntry = {
+  id: string;
+  /** CCMax user this entry belongs to (a local account id or "env-superadmin"). */
+  userId: string;
+  /** Username snapshot for display, independent of later renames/deletes. */
+  username: string;
+  kind: LedgerEntryKind;
+  /** Ledger amount recorded for this entry, in USD. */
+  amountUsd: number;
+  /** Real amount actually paid (recorded for reference only). */
+  paidAmount: number | null;
+  /** Currency of the real payment (recorded for reference only, e.g. USD/CNY). */
+  paidCurrency: string;
+  note: string | null;
+  createdAt: string;
+  createdBy: string;
+  createdByName: string;
 };
 
 /**
@@ -91,6 +119,7 @@ export type LocalAccountStore = {
   audit: AuditEvent[];
   backends: BackendConfigStore;
   poolOwnership: PoolOwnership[];
+  ledger: LedgerEntry[];
 };
 
 const defaultSettings: SystemSettings = {
@@ -100,6 +129,7 @@ const defaultSettings: SystemSettings = {
   allowAdminAccountPoolView: true,
   allowUserAccountPoolView: false,
   scopeAccountPoolByOwner: true,
+  settlementModuleEnabled: true,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -333,6 +363,35 @@ export async function listOwnedAccountIds(platform: BackendRef, ownerId: string)
   return owned;
 }
 
+/** All settlement/prepay ledger entries, newest first. */
+export async function listLedgerEntries(): Promise<LedgerEntry[]> {
+  const store = await getAccountStore();
+  return store.ledger;
+}
+
+/** Append a settlement/prepay entry (bookkeeping only — no payment side effects). */
+export async function addLedgerEntry(input: Omit<LedgerEntry, "id" | "createdAt">) {
+  return mutateStore((store) => {
+    const entry: LedgerEntry = {
+      ...input,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    store.ledger.unshift(entry);
+    return entry;
+  });
+}
+
+/** Remove a ledger entry by id. Returns the removed entry, or null if not found. */
+export async function deleteLedgerEntry(id: string) {
+  return mutateStore((store) => {
+    const index = store.ledger.findIndex((item) => item.id === id);
+    if (index < 0) return null;
+    const [entry] = store.ledger.splice(index, 1);
+    return entry;
+  });
+}
+
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
 export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
 
@@ -434,7 +493,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [] };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [] };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -444,6 +503,7 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     audit: Array.isArray(value.audit) ? value.audit.slice(0, 300) : [],
     backends: normalizeBackends(value.backends),
     poolOwnership: Array.isArray(value.poolOwnership) ? value.poolOwnership : [],
+    ledger: Array.isArray(value.ledger) ? value.ledger : [],
   };
 }
 

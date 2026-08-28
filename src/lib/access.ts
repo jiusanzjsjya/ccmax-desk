@@ -64,3 +64,30 @@ export function poolScope(context: AccessContext): { scoped: boolean; ownerId: s
 export function roleCanCreateUsers(role: Role, settings: AccessContext["store"]["settings"]) {
   return role === "superadmin" || (role === "admin" && settings.allowAdminCreateUsers);
 }
+
+/**
+ * Which CCMax users a viewer may see in the settlement/analytics module.
+ * - superadmin: everyone (`"all"`)
+ * - admin: themselves + every regular `user`
+ * - user: only themselves
+ */
+export function settlementScope(context: AccessContext): { userIds: "all" | Set<string> } {
+  if (context.role === "superadmin") return { userIds: "all" };
+
+  const visible = new Set<string>([context.session.userId]);
+  if (context.role === "admin") {
+    for (const account of context.store.accounts) {
+      if (account.role === "user") visible.add(account.id);
+    }
+  }
+  return { userIds: visible };
+}
+
+/** Whether a viewer may write a ledger entry for `targetUserId`. */
+export function canWriteLedger(context: AccessContext, targetUserId: string): boolean {
+  if (context.role === "superadmin") return true;
+  if (context.role !== "admin") return false;
+  if (targetUserId === context.session.userId) return true;
+  const target = context.store.accounts.find((account) => account.id === targetUserId);
+  return target?.role === "user";
+}

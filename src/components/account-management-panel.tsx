@@ -27,6 +27,7 @@ type Settings = {
   allowAdminAccountPoolView: boolean;
   allowUserAccountPoolView: boolean;
   scopeAccountPoolByOwner: boolean;
+  settlementModuleEnabled: boolean;
 };
 
 const emptySettings: Settings = {
@@ -36,6 +37,7 @@ const emptySettings: Settings = {
   allowAdminAccountPoolView: true,
   allowUserAccountPoolView: false,
   scopeAccountPoolByOwner: true,
+  settlementModuleEnabled: true,
 };
 
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
@@ -229,6 +231,9 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       setSettings(payload.settings);
       setMessage("系统开关已保存。");
       void refresh();
+      // Some toggles (e.g. the settlement module) gate server-rendered nav items,
+      // so re-run the dashboard server component to reflect visibility changes.
+      router.refresh();
     } catch {
       setError("保存系统开关失败。");
       await refresh();
@@ -309,6 +314,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label="管理员查看账号池" checked={settings.allowAdminAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminAccountPoolView", value)} />
           <SettingToggle label="普通用户查看账号池" checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
           <SettingToggle label="普通用户仅见本人上号的账号" checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
+          <SettingToggle label="启用数据分析结算模块" checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
         </div>
       </div>
 
