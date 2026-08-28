@@ -781,32 +781,25 @@ type ProxyKind = "http" | "socks5";
 
 type ParsedProxy = { protocol: ProxyKind; host: string; port: number; username?: string; password?: string };
 
-const PROXY_TABS: { id: ProxyKind; label: string; placeholder: string }[] = [
-  { id: "http", label: "HTTP", placeholder: "1.2.3.4:8080  或  user:pass@1.2.3.4:8080" },
-  { id: "socks5", label: "SOCKS5", placeholder: "1.2.3.4:1080  或  user:pass@1.2.3.4:1080" },
-];
+const PROXY_PLACEHOLDER = "socks5://user:pass@1.2.3.4:1080  或  http://1.2.3.4:8080";
 
 /**
- * Parse a pasted proxy string against the selected tab. Accepts three shapes —
- * `host:port`, `host:port:user:pass`, and `user:pass@host:port` — optionally with
- * a scheme prefix, which must match the active tab (http↔http/https, socks5↔socks5/socks5h).
- * The tab locks the protocol, so a bare address never guesses the wrong scheme.
+ * Parse a pasted proxy string. The protocol is read from a required scheme prefix
+ * (http/https -> http, socks5/socks5h -> socks5), so it is never guessed. After the
+ * scheme, three address shapes are accepted: `host:port`, `host:port:user:pass`,
+ * and `user:pass@host:port`.
  */
-function parseProxyString(raw: string, tab: ProxyKind, t: TFn): { ok: true; value: ParsedProxy } | { ok: false; message: string } {
+function parseProxyString(raw: string, t: TFn): { ok: true; value: ParsedProxy } | { ok: false; message: string } {
   let text = raw.trim();
   if (!text) return { ok: false, message: t("请粘贴代理地址。") };
 
   const scheme = text.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
-  if (scheme) {
-    const name = scheme[1].toLowerCase();
-    const family: ProxyKind | null =
-      name === "http" || name === "https" ? "http" : name === "socks5" || name === "socks5h" ? "socks5" : null;
-    if (!family) return { ok: false, message: t("无法识别的协议头 {name}://。", { name }) };
-    if (family !== tab) {
-      return { ok: false, message: t("协议头 {name}:// 与所选「{tab}」不一致。", { name, tab: tab === "http" ? "HTTP" : "SOCKS5" }) };
-    }
-    text = text.slice(scheme[0].length);
-  }
+  if (!scheme) return { ok: false, message: t("请加协议头 http:// 或 socks5://。") };
+  const name = scheme[1].toLowerCase();
+  const protocol: ProxyKind | null =
+    name === "http" || name === "https" ? "http" : name === "socks5" || name === "socks5h" ? "socks5" : null;
+  if (!protocol) return { ok: false, message: t("无法识别的协议头 {name}://。", { name }) };
+  text = text.slice(scheme[0].length);
 
   let host = "";
   let portText = "";
@@ -841,7 +834,7 @@ function parseProxyString(raw: string, tab: ProxyKind, t: TFn): { ok: true; valu
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, message: t("端口无效（1–65535）。") };
   if (username !== undefined && username.trim() === "") return { ok: false, message: t("用户名不能为空（或整体省略认证）。") };
 
-  return { ok: true, value: { protocol: tab, host, port, username: username?.trim() || undefined, password: password || undefined } };
+  return { ok: true, value: { protocol, host, port, username: username?.trim() || undefined, password: password || undefined } };
 }
 
 function CustomProxyForm({
@@ -853,14 +846,12 @@ function CustomProxyForm({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<ProxyKind>("http");
   const [raw, setRaw] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const parsed = useMemo(() => parseProxyString(raw, tab, t), [raw, tab, t]);
-  const active = PROXY_TABS.find((opt) => opt.id === tab) ?? PROXY_TABS[0];
+  const parsed = useMemo(() => parseProxyString(raw, t), [raw, t]);
 
   async function submit() {
     if (!parsed.ok) {
@@ -896,33 +887,17 @@ function CustomProxyForm({
 
   return (
     <div className="custom-proxy">
-      <div className="proxy-tabs" role="tablist" aria-label={t("代理协议")}>
-        {PROXY_TABS.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === opt.id}
-            className={tab === opt.id ? "is-active" : ""}
-            onClick={() => setTab(opt.id)}
-            disabled={busy}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      <label className="field-label" htmlFor="proxy-paste">{t("粘贴 {label} 代理", { label: active.label })}</label>
+      <label className="field-label" htmlFor="proxy-paste">{t("粘贴代理地址")}</label>
       <input
         id="proxy-paste"
         className="text-input"
         value={raw}
         onChange={(event) => setRaw(event.target.value)}
-        placeholder={t(active.placeholder)}
+        placeholder={t(PROXY_PLACEHOLDER)}
         autoComplete="off"
         spellCheck={false}
         disabled={busy}
-        aria-label={t("{label} 代理地址", { label: active.label })}
+        aria-label={t("代理地址")}
       />
 
       {raw.trim() ? (
@@ -935,7 +910,7 @@ function CustomProxyForm({
           <p className="proxy-check is-error">✕ {parsed.message}</p>
         )
       ) : (
-        <p className="proxy-check">{t("选项卡锁定协议，支持 host:port、host:port:user:pass、user:pass@host:port。")}</p>
+        <p className="proxy-check">{t("需带 http:// 或 socks5:// 前缀，协议自动识别；支持 host:port、host:port:user:pass、user:pass@host:port。")}</p>
       )}
 
       <input

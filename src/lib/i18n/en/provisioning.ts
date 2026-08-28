@@ -77,8 +77,8 @@ export const provisioning: Record<string, string> = {
 
   // Proxy parsing
   "请粘贴代理地址。": "Paste a proxy address.",
+  "请加协议头 http:// 或 socks5://。": "Add an http:// or socks5:// scheme prefix.",
   "无法识别的协议头 {name}://。": "Unrecognized scheme {name}://.",
-  "协议头 {name}:// 与所选「{tab}」不一致。": "Scheme {name}:// doesn't match the selected {tab}.",
   "认证部分应为 user:pass。": "The auth part should be user:pass.",
   "地址部分应为 host:port。": "The address part should be host:port.",
   "格式应为 host:port、host:port:user:pass 或 user:pass@host:port。":
@@ -88,15 +88,14 @@ export const provisioning: Record<string, string> = {
   "用户名不能为空（或整体省略认证）。": "Username cannot be empty (or omit auth entirely).",
 
   // Custom proxy form
-  "1.2.3.4:8080  或  user:pass@1.2.3.4:8080": "1.2.3.4:8080  or  user:pass@1.2.3.4:8080",
-  "1.2.3.4:1080  或  user:pass@1.2.3.4:1080": "1.2.3.4:1080  or  user:pass@1.2.3.4:1080",
-  "代理协议": "Proxy protocol",
-  "粘贴 {label} 代理": "Paste {label} proxy",
-  "{label} 代理地址": "{label} proxy address",
+  "socks5://user:pass@1.2.3.4:1080  或  http://1.2.3.4:8080":
+    "socks5://user:pass@1.2.3.4:1080  or  http://1.2.3.4:8080",
+  "粘贴代理地址": "Paste proxy address",
+  "代理地址": "Proxy address",
   "认证 {user}": "auth {user}",
   "无认证": "no auth",
-  "选项卡锁定协议，支持 host:port、host:port:user:pass、user:pass@host:port。":
-    "The tab locks the protocol; supports host:port, host:port:user:pass, user:pass@host:port.",
+  "需带 http:// 或 socks5:// 前缀，协议自动识别；支持 host:port、host:port:user:pass、user:pass@host:port。":
+    "Needs an http:// or socks5:// prefix (protocol auto-detected); supports host:port, host:port:user:pass, user:pass@host:port.",
   "名称（可选）": "Name (optional)",
   "名称": "Name",
   "创建中...": "Creating…",
