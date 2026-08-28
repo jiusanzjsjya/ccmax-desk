@@ -71,6 +71,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   const [proxyAllowed, setProxyAllowed] = useState(false);
   const [backends, setBackends] = useState<BackendOption[]>([]);
   const [selectedBackend, setSelectedBackend] = useState("");
+  const [backendSelectable, setBackendSelectable] = useState(true);
   const [country, setCountry] = useState(DEFAULT_COUNTRY);
   const [proxyTest, setProxyTest] = useState<{ status: "idle" | "testing" | "ok" | "error"; message: string }>({
     status: "idle",
@@ -158,8 +159,10 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       try {
         const response = await fetch("/api/provisioning/backends", { cache: "no-store" });
         if (!response.ok) return;
-        const payload = (await response.json().catch(() => ({}))) as { default?: string; items?: BackendOption[] };
+        const payload = (await response.json().catch(() => ({}))) as { default?: string; items?: BackendOption[]; canSelect?: boolean };
         if (cancelled || !payload.items?.length) return;
+        // Locked users (canSelect === false) are pinned to the default platform; hide the picker.
+        setBackendSelectable(payload.canSelect !== false);
         setBackends(payload.items);
         setSelectedBackend(payload.default && payload.items.some((item) => item.ref === payload.default)
           ? payload.default
@@ -370,7 +373,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         </div>
       ) : null}
 
-      {backends.length ? (
+      {backends.length && backendSelectable ? (
         <div className="target-backend-bar">
           <label className="field-label" htmlFor="target-backend">目标平台</label>
           <select

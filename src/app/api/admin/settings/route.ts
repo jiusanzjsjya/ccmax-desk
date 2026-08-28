@@ -14,6 +14,9 @@ const settingsSchema = z.object({
   allowUserAccountPoolView: z.boolean().optional(),
   scopeAccountPoolByOwner: z.boolean().optional(),
   settlementModuleEnabled: z.boolean().optional(),
+  allowUserCustomProxy: z.boolean().optional(),
+  allowUserSelectBackend: z.boolean().optional(),
+  allowUserLedgerWrite: z.boolean().optional(),
 });
 
 export async function GET() {

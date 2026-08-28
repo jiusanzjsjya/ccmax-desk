@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { canUseCustomProxy, getAccessContext, provisioningAccess } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { mapSub2ApiError, Sub2ApiError, testProxy } from "@/lib/sub2api";
 
@@ -19,7 +19,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  if (context.role === "user") {
+  if (!canUseCustomProxy(context)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

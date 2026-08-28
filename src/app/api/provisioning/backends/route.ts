@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { canSelectBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { selectableBackends } from "@/lib/backend-config";
 
 export const dynamic = "force-dynamic";
@@ -17,5 +17,10 @@ export async function GET() {
 
   // items: [{ ref, kind, label }] — ref is the value the wizard sends back.
   const { default: defaultBackend, items } = await selectableBackends();
-  return NextResponse.json({ default: defaultBackend, items });
+
+  // A user without select permission is locked to the default: expose only that
+  // option and signal `canSelect: false` so the wizard hides the platform picker.
+  const canSelect = canSelectBackend(context);
+  const visibleItems = canSelect ? items : items.filter((item) => item.ref === defaultBackend);
+  return NextResponse.json({ default: defaultBackend, items: visibleItems, canSelect });
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { canSelectBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { recordPoolOwnership } from "@/lib/account-store";
 import { isBackendConfigured, isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveBackend, resolveOAuthBroker } from "@/lib/backends/registry";
@@ -46,7 +46,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  if (parsed.data.backend && !(await isBackendConfigured(parsed.data.backend))) {
+  // A user without select permission is locked to the default backend: drop any
+  // client-supplied target so resolveBackend() falls back to the superadmin default.
+  const targetBackend = canSelectBackend(context) ? parsed.data.backend : undefined;
+
+  if (targetBackend && !(await isBackendConfigured(targetBackend))) {
     return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });
   }
 
@@ -75,7 +79,7 @@ export async function POST(request: Request) {
     }
 
     const accountName = parsed.data.name || buildDefaultName(tokenInfo, flow.flowId);
-    const backend = await resolveBackend(parsed.data.backend);
+    const backend = await resolveBackend(targetBackend);
     const account = await backend.createClaudeAccount({
       name: accountName,
       notes: composeNotes(parsed.data.country, parsed.data.notes),
@@ -87,7 +91,7 @@ export async function POST(request: Request) {
     // Best-effort: the account already exists in the backend, so a failed
     // ownership write must not fail the onboard.
     if (account?.id != null) {
-      const platformRef = parsed.data.backend ?? context.store.backends.defaultBackend;
+      const platformRef = targetBackend ?? context.store.backends.defaultBackend;
       await recordPoolOwnership({
         platform: platformRef,
         accountId: String(account.id),

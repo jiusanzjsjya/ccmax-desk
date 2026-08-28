@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAccessContext, settlementScope } from "@/lib/access";
+import { canWriteAnyLedger, getAccessContext, settlementScope } from "@/lib/access";
 import { type PoolOwnership } from "@/lib/account-store";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { refKind } from "@/lib/backends/kinds";
@@ -101,7 +101,7 @@ export async function GET() {
     rows,
     totals,
     usageAvailable,
-    canWrite: context.role !== "user",
+    canWrite: canWriteAnyLedger(context),
   };
 
   return NextResponse.json(summary);

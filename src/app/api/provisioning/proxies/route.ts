@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { canUseCustomProxy, getAccessContext, provisioningAccess } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { createProxy, listProxies, mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
 
@@ -30,8 +30,8 @@ export async function GET() {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  // Proxy infrastructure is admin-only; plain users use the default proxy.
-  if (context.role === "user") {
+  // Custom-proxy access: admin/superadmin always; a regular user only when the toggle is on.
+  if (!canUseCustomProxy(context)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  if (context.role === "user") {
+  if (!canUseCustomProxy(context)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

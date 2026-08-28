@@ -66,6 +66,25 @@ export function roleCanCreateUsers(role: Role, settings: AccessContext["store"][
 }
 
 /**
+ * Whether the viewer may select/create/test custom egress proxies in provisioning.
+ * admin/superadmin always may; a regular `user` only when the superadmin toggle is on.
+ */
+export function canUseCustomProxy(context: AccessContext): boolean {
+  if (context.role !== "user") return true;
+  return context.store.settings.allowUserCustomProxy;
+}
+
+/**
+ * Whether the viewer may choose the target platform. admin/superadmin always may;
+ * a regular `user` only when the toggle is on — otherwise they are locked to the
+ * superadmin default backend.
+ */
+export function canSelectBackend(context: AccessContext): boolean {
+  if (context.role !== "user") return true;
+  return context.store.settings.allowUserSelectBackend;
+}
+
+/**
  * Which CCMax users a viewer may see in the settlement/analytics module.
  * - superadmin: everyone (`"all"`)
  * - admin: themselves + every regular `user`
@@ -86,8 +105,16 @@ export function settlementScope(context: AccessContext): { userIds: "all" | Set<
 /** Whether a viewer may write a ledger entry for `targetUserId`. */
 export function canWriteLedger(context: AccessContext, targetUserId: string): boolean {
   if (context.role === "superadmin") return true;
-  if (context.role !== "admin") return false;
-  if (targetUserId === context.session.userId) return true;
-  const target = context.store.accounts.find((account) => account.id === targetUserId);
-  return target?.role === "user";
+  if (context.role === "admin") {
+    if (targetUserId === context.session.userId) return true;
+    const target = context.store.accounts.find((account) => account.id === targetUserId);
+    return target?.role === "user";
+  }
+  // Regular user: only their own ledger, and only when the superadmin toggle is on.
+  return context.store.settings.allowUserLedgerWrite && targetUserId === context.session.userId;
+}
+
+/** Whether the viewer may write any ledger entry at all (drives the panel's "new entry" affordance). */
+export function canWriteAnyLedger(context: AccessContext): boolean {
+  return context.role !== "user" || context.store.settings.allowUserLedgerWrite;
 }

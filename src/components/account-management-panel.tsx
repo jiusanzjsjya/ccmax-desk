@@ -28,6 +28,9 @@ type Settings = {
   allowUserAccountPoolView: boolean;
   scopeAccountPoolByOwner: boolean;
   settlementModuleEnabled: boolean;
+  allowUserCustomProxy: boolean;
+  allowUserSelectBackend: boolean;
+  allowUserLedgerWrite: boolean;
 };
 
 const emptySettings: Settings = {
@@ -38,6 +41,9 @@ const emptySettings: Settings = {
   allowUserAccountPoolView: false,
   scopeAccountPoolByOwner: true,
   settlementModuleEnabled: true,
+  allowUserCustomProxy: true,
+  allowUserSelectBackend: true,
+  allowUserLedgerWrite: false,
 };
 
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
@@ -315,6 +321,9 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label="普通用户查看账号池" checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
           <SettingToggle label="普通用户仅见本人上号的账号" checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
           <SettingToggle label="启用数据分析结算模块" checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
+          <SettingToggle label="允许普通用户使用自建代理" checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
+          <SettingToggle label="允许普通用户选择目标平台" checked={settings.allowUserSelectBackend} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserSelectBackend", value)} />
+          <SettingToggle label="允许普通用户结算台账记账" checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
         </div>
       </div>
 
