@@ -2,11 +2,12 @@ import {
   getBackendConfigStore,
   isBackendRefConfigured,
   type BackendConfigStore,
+  type CcGateway,
   type CustomGateway,
   type RelayBackendConfig,
   type Sub2ApiBackendConfig,
 } from "@/lib/account-store";
-import { backendLabel, customIdFromRef, refKind, type BackendKind, type BackendRef } from "@/lib/backends/kinds";
+import { backendLabel, ccgatewayIdFromRef, customIdFromRef, refKind, type BackendKind, type BackendRef } from "@/lib/backends/kinds";
 
 /** The superadmin-managed backend configuration (store over env seed). */
 export async function getBackendSettings(): Promise<BackendConfigStore> {
@@ -43,6 +44,12 @@ export async function getCustomGateway(id: string): Promise<CustomGateway | null
   return customs.find((gateway) => gateway.id === id) ?? null;
 }
 
+/** One Claude Gateway (vendor) instance by id; `vendorPassword` stays encrypted. */
+export async function getCcGateway(id: string): Promise<CcGateway | null> {
+  const { ccgateways } = await getBackendSettings();
+  return ccgateways.find((gateway) => gateway.id === id) ?? null;
+}
+
 export async function isBackendConfigured(ref: BackendRef): Promise<boolean> {
   return isBackendRefConfigured(ref, await getBackendSettings());
 }
@@ -76,10 +83,15 @@ export async function selectableBackends(): Promise<{ default: BackendRef; items
 
 /** Display label for a ref — a gateway's own name, or the singleton kind label. */
 function refLabel(ref: BackendRef, settings: BackendConfigStore): string {
-  const id = customIdFromRef(ref);
-  if (id) {
-    const gateway = settings.customs.find((item) => item.id === id);
+  const customId = customIdFromRef(ref);
+  if (customId) {
+    const gateway = settings.customs.find((item) => item.id === customId);
     return gateway?.name || "自建网关";
+  }
+  const ccId = ccgatewayIdFromRef(ref);
+  if (ccId) {
+    const gateway = settings.ccgateways.find((item) => item.id === ccId);
+    return gateway?.name || "Claude Gateway";
   }
   return backendLabel(refKind(ref));
 }

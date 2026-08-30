@@ -1,9 +1,9 @@
 // Leaf module (no imports) so both server config and client UI can share these
 // without creating import cycles.
 
-export type BackendKind = "sub2api" | "newapi" | "oneapi" | "custom";
+export type BackendKind = "sub2api" | "newapi" | "oneapi" | "custom" | "ccgateway";
 
-export const BACKEND_KINDS: BackendKind[] = ["sub2api", "newapi", "oneapi", "custom"];
+export const BACKEND_KINDS: BackendKind[] = ["sub2api", "newapi", "oneapi", "custom", "ccgateway"];
 
 /**
  * A concrete target platform the operator can pick. Singletons use their kind
@@ -13,6 +13,7 @@ export const BACKEND_KINDS: BackendKind[] = ["sub2api", "newapi", "oneapi", "cus
 export type BackendRef = string;
 
 const CUSTOM_PREFIX = "custom:";
+const CCGATEWAY_PREFIX = "ccgateway:";
 
 /** Build the ref for a self-built gateway id. */
 export function customRef(id: string): BackendRef {
@@ -24,9 +25,20 @@ export function customIdFromRef(ref: BackendRef): string | null {
   return ref.startsWith(CUSTOM_PREFIX) ? ref.slice(CUSTOM_PREFIX.length) || null : null;
 }
 
+/** Build the ref for a Claude Gateway (vendor) instance id. */
+export function ccgatewayRef(id: string): BackendRef {
+  return `${CCGATEWAY_PREFIX}${id}`;
+}
+
+/** Extract the instance id from a "ccgateway:<id>" ref, or null otherwise. */
+export function ccgatewayIdFromRef(ref: BackendRef): string | null {
+  return ref.startsWith(CCGATEWAY_PREFIX) ? ref.slice(CCGATEWAY_PREFIX.length) || null : null;
+}
+
 /** The BackendKind a ref belongs to ("custom:<id>" -> "custom"). */
 export function refKind(ref: BackendRef): BackendKind {
   if (ref.startsWith(CUSTOM_PREFIX)) return "custom";
+  if (ref.startsWith(CCGATEWAY_PREFIX)) return "ccgateway";
   return isBackendKind(ref) ? ref : "custom";
 }
 
@@ -40,6 +52,8 @@ export function backendLabel(kind: BackendKind) {
       return "one-api";
     case "custom":
       return "自建网关";
+    case "ccgateway":
+      return "Claude Gateway";
     default:
       return kind;
   }

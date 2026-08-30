@@ -1,6 +1,7 @@
-import { getBackendSettings, getCustomGateway, getRelayConfig, isBackendConfigured } from "@/lib/backend-config";
-import { customIdFromRef, refKind, type BackendRef } from "@/lib/backends/kinds";
+import { getBackendSettings, getCcGateway, getCustomGateway, getRelayConfig, isBackendConfigured } from "@/lib/backend-config";
+import { ccgatewayIdFromRef, customIdFromRef, refKind, type BackendRef } from "@/lib/backends/kinds";
 import { Sub2ApiError } from "@/lib/sub2api";
+import { ccgatewayBackend } from "./ccgateway";
 import { customBackend } from "./custom";
 import { createRelayBackend } from "./relay";
 import { sub2apiBackend, sub2apiOAuthBroker } from "./sub2api";
@@ -54,6 +55,14 @@ export async function resolveBackend(ref?: BackendRef): Promise<PoolBackend> {
         throw new Sub2ApiError(`自建网关不存在或已删除：${target}`);
       }
       return customBackend(gateway);
+    }
+    case "ccgateway": {
+      const id = ccgatewayIdFromRef(target);
+      const gateway = id ? await getCcGateway(id) : null;
+      if (!gateway) {
+        throw new Sub2ApiError(`Claude Gateway 不存在或已删除：${target}`);
+      }
+      return ccgatewayBackend(gateway);
     }
     default:
       throw new Sub2ApiError(`未知的目标后端：${target}`);

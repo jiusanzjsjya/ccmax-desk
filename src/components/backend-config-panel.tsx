@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { customRef } from "@/lib/backends/kinds";
+import { ccgatewayRef, customRef } from "@/lib/backends/kinds";
 import { useI18n } from "@/lib/i18n/context";
 
 type SingletonKind = "sub2api" | "newapi" | "oneapi";
@@ -24,6 +24,17 @@ type CustomGatewayView = {
   configured: boolean;
 };
 
+type CcGatewayView = {
+  id: string;
+  ref: string;
+  name: string;
+  baseUrl: string;
+  vendorEmail: string;
+  hasPassword: boolean;
+  groupId: string;
+  configured: boolean;
+};
+
 type BackendConfig = {
   defaultBackend: string;
   enabled: string[];
@@ -32,6 +43,7 @@ type BackendConfig = {
   newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string; hasApiKey: boolean };
   oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string; hasApiKey: boolean };
   customs: CustomGatewayView[];
+  ccgateways: CcGatewayView[];
 };
 
 type TokenInputs = {
@@ -41,9 +53,10 @@ type TokenInputs = {
   newapiApiKey: string;
   oneapiApiKey: string;
   customs: Record<string, string>;
+  ccgateways: Record<string, string>;
 };
 
-const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {} };
+const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {}, ccgateways: {} };
 
 /**
  * A client-side gateway id. `crypto.randomUUID` only exists in a secure context
@@ -89,7 +102,11 @@ export default function BackendConfigPanel() {
         setError(t("读取后端配置失败。"));
         return;
       }
-      setConfig({ ...payload, customs: Array.isArray(payload.customs) ? payload.customs : [] });
+      setConfig({
+        ...payload,
+        customs: Array.isArray(payload.customs) ? payload.customs : [],
+        ccgateways: Array.isArray(payload.ccgateways) ? payload.ccgateways : [],
+      });
       setTokens(emptyTokens);
     } catch {
       setError(t("无法读取后端配置。"));
@@ -121,13 +138,23 @@ export default function BackendConfigPanel() {
     setTokens((current) => ({ ...current, customs: { ...current.customs, [id]: value } }));
   }
 
+  function patchCcGateway(id: string, value: Partial<CcGatewayView>) {
+    setConfig((current) =>
+      current ? { ...current, ccgateways: current.ccgateways.map((gateway) => (gateway.id === id ? { ...gateway, ...value } : gateway)) } : current,
+    );
+  }
+
+  function setCcGatewayPassword(id: string, value: string) {
+    setTokens((current) => ({ ...current, ccgateways: { ...current.ccgateways, [id]: value } }));
+  }
+
   function toggleEnabled(ref: string, on: boolean) {
     setConfig((current) => {
       if (!current) return current;
       const set = new Set(current.enabled);
       if (on) set.add(ref);
       else set.delete(ref);
-      return { ...current, enabled: orderRefs(set, current.customs) };
+      return { ...current, enabled: orderRefs(set, current.customs, current.ccgateways) };
     });
   }
 
@@ -156,6 +183,37 @@ export default function BackendConfigPanel() {
     setTokens((current) => {
       const { [id]: _dropped, ...rest } = current.customs;
       return { ...current, customs: rest };
+    });
+  }
+
+  function addCcGateway() {
+    const id = newGatewayId();
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            ccgateways: [
+              ...current.ccgateways,
+              { id, ref: ccgatewayRef(id), name: t("Claude Gateway"), baseUrl: "", vendorEmail: "", hasPassword: false, groupId: "", configured: false },
+            ],
+          }
+        : current,
+    );
+    setCcGatewayPassword(id, "");
+  }
+
+  function removeCcGateway(id: string) {
+    setConfig((current) => {
+      if (!current) return current;
+      const ref = ccgatewayRef(id);
+      const ccgateways = current.ccgateways.filter((gateway) => gateway.id !== id);
+      const enabled = current.enabled.filter((value) => value !== ref);
+      const defaultBackend = current.defaultBackend === ref ? enabled[0] ?? "sub2api" : current.defaultBackend;
+      return { ...current, ccgateways, enabled, defaultBackend };
+    });
+    setTokens((current) => {
+      const { [id]: _dropped, ...rest } = current.ccgateways;
+      return { ...current, ccgateways: rest };
     });
   }
 
@@ -195,6 +253,14 @@ export default function BackendConfigPanel() {
           url: gateway.url,
           listUrl: gateway.listUrl,
           ...(tokens.customs[gateway.id] ? { token: tokens.customs[gateway.id] } : {}),
+        })),
+        ccgateways: config.ccgateways.map((gateway) => ({
+          id: gateway.id,
+          name: gateway.name,
+          baseUrl: gateway.baseUrl,
+          vendorEmail: gateway.vendorEmail,
+          groupId: gateway.groupId,
+          ...(tokens.ccgateways[gateway.id] ? { vendorPassword: tokens.ccgateways[gateway.id] } : {}),
         })),
       };
 
@@ -252,6 +318,9 @@ export default function BackendConfigPanel() {
               ))}
               {config.customs.map((gateway) => (
                 <option key={gateway.id} value={gateway.ref}>{gateway.name || t("自建网关")}</option>
+              ))}
+              {config.ccgateways.map((gateway) => (
+                <option key={gateway.id} value={gateway.ref}>{gateway.name || t("Claude Gateway")}</option>
               ))}
             </select>
             <div className="settings-panel">
@@ -378,6 +447,61 @@ export default function BackendConfigPanel() {
             )}
           </div>
 
+          <div className="gateway-section">
+            <div className="management-heading">
+              <div>
+                <p className="management-kicker">{t("Claude Gateway（vendor 供应商，可多个）")}</p>
+                <p className="management-help">{t("每个 vendor 供应商一条：用邮箱+密码登录换令牌，上号时用 refresh_token 导入其账号池。把该网关分配给对应管理员即可。")}</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={addCcGateway} disabled={saving}>
+                {t("+ 添加 Claude Gateway")}
+              </button>
+            </div>
+
+            {config.ccgateways.length ? (
+              <div className="management-grid">
+                {config.ccgateways.map((gateway) => (
+                  <div className="settings-panel" key={gateway.id}>
+                    <div className="flow-card-head">
+                      <p className="management-kicker">{gateway.name || t("Claude Gateway")}</p>
+                      <span className={`account-status ${gateway.configured ? "is-alive" : "is-dead"}`}>{gateway.configured ? t("已配置") : t("未配置")}</span>
+                    </div>
+                    <Field label={t("名称")}>
+                      <input className="text-input" value={gateway.name} onChange={(e) => patchCcGateway(gateway.id, { name: e.target.value })} placeholder={t("例如 供应商-A")} disabled={saving} />
+                    </Field>
+                    <Field label={t("网关地址 Base URL")}>
+                      <input className="text-input" value={gateway.baseUrl} onChange={(e) => patchCcGateway(gateway.id, { baseUrl: e.target.value })} placeholder="http://gateway.example.com" disabled={saving} />
+                    </Field>
+                    <Field label={t("vendor 登录邮箱")}>
+                      <input className="text-input" value={gateway.vendorEmail} onChange={(e) => patchCcGateway(gateway.id, { vendorEmail: e.target.value })} placeholder="vendor@example.com" autoComplete="off" disabled={saving} />
+                    </Field>
+                    <Field label={t("vendor 登录密码")}>
+                      <TokenInput has={gateway.hasPassword} value={tokens.ccgateways[gateway.id] ?? ""} onChange={(v) => setCcGatewayPassword(gateway.id, v)} disabled={saving} />
+                    </Field>
+                    <Field label={t("分组 ID（可选，留空用默认组）")}>
+                      <input className="text-input" value={gateway.groupId} onChange={(e) => patchCcGateway(gateway.id, { groupId: e.target.value })} placeholder={t("留空自动使用网关默认组")} disabled={saving} />
+                    </Field>
+                    <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
+                      <span>{t("启用该网关")}</span>
+                      <input
+                        type="checkbox"
+                        checked={config.enabled.includes(gateway.ref)}
+                        disabled={saving}
+                        onChange={(event) => toggleEnabled(gateway.ref, event.target.checked)}
+                      />
+                      <i aria-hidden="true" />
+                    </label>
+                    <button className="secondary-button" type="button" onClick={() => removeCcGateway(gateway.id)} disabled={saving}>
+                      {t("移除该网关")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">{t("还没有 Claude Gateway，点「添加 Claude Gateway」新增。")}</p>
+            )}
+          </div>
+
           <div className="wizard-actions">
             <button className="oauth-button" type="button" onClick={() => void save()} disabled={saving}>
               {saving ? t("保存中...") : t("保存后端配置")}
@@ -393,10 +517,11 @@ export default function BackendConfigPanel() {
 }
 
 /** Keep enabled refs in a stable order: singletons first, then gateways as listed. */
-function orderRefs(refs: Set<string>, customs: CustomGatewayView[]): string[] {
+function orderRefs(refs: Set<string>, customs: CustomGatewayView[], ccgateways: CcGatewayView[]): string[] {
   const ordered: string[] = [];
   for (const { kind } of SINGLETONS) if (refs.has(kind)) ordered.push(kind);
   for (const gateway of customs) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
+  for (const gateway of ccgateways) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
   return ordered;
 }
 

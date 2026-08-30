@@ -9,7 +9,7 @@ import {
   updateBackendSettings,
   type BackendConfigPatch,
 } from "@/lib/account-store";
-import { customRef } from "@/lib/backends/kinds";
+import { ccgatewayRef, customRef } from "@/lib/backends/kinds";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +50,19 @@ const patchSchema = z.object({
         url: z.string().trim().max(300).optional(),
         token: z.string().max(4000).optional(),
         listUrl: z.string().trim().max(300).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  ccgateways: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(64).optional(),
+        name: z.string().trim().max(80).optional(),
+        baseUrl: z.string().trim().max(300).optional(),
+        vendorEmail: z.string().trim().max(200).optional(),
+        vendorPassword: z.string().max(400).optional(),
+        groupId: z.string().trim().max(80).optional(),
       }),
     )
     .max(20)
@@ -96,6 +109,17 @@ export async function GET() {
       hasToken: Boolean(gateway.token),
       listUrl: gateway.listUrl,
       configured: isBackendRefConfigured(customRef(gateway.id), backends),
+    })),
+    // Vendor passwords are never returned; only whether one is set.
+    ccgateways: backends.ccgateways.map((gateway) => ({
+      id: gateway.id,
+      ref: ccgatewayRef(gateway.id),
+      name: gateway.name,
+      baseUrl: gateway.baseUrl,
+      vendorEmail: gateway.vendorEmail,
+      hasPassword: Boolean(gateway.vendorPassword),
+      groupId: gateway.groupId,
+      configured: isBackendRefConfigured(ccgatewayRef(gateway.id), backends),
     })),
   });
 }
@@ -152,5 +176,7 @@ function stripBlankSecrets(input: z.infer<typeof patchSchema>): BackendConfigPat
   }
   // Per-gateway blank tokens are treated as "unchanged" by the store merge.
   if (input.customs) patch.customs = input.customs;
+  // Blank vendorPassword is likewise kept by the store merge (see mergeCcGateways).
+  if (input.ccgateways) patch.ccgateways = input.ccgateways;
   return patch;
 }

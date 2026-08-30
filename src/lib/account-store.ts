@@ -4,7 +4,8 @@ import path from "node:path";
 
 import { env } from "@/lib/env";
 import type { Role } from "@/lib/roles";
-import { customIdFromRef, customRef, refKind, type BackendRef } from "@/lib/backends/kinds";
+import { ccgatewayIdFromRef, ccgatewayRef, customIdFromRef, customRef, refKind, type BackendRef } from "@/lib/backends/kinds";
+import { encryptSecret } from "@/lib/secret-box";
 
 export type LocalAccount = {
   id: string;
@@ -141,6 +142,7 @@ export type BackendConfigStore = {
   newapi: RelayBackendConfig;
   oneapi: Omit<RelayBackendConfig, "userId">;
   customs: CustomGateway[];
+  ccgateways: CcGateway[];
 };
 
 export type LocalAccountStore = {
@@ -171,7 +173,7 @@ const defaultSettings: SystemSettings = {
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
-type BackendConfigFields = Pick<BackendConfigStore, "sub2api" | "newapi" | "oneapi" | "customs">;
+type BackendConfigFields = Pick<BackendConfigStore, "sub2api" | "newapi" | "oneapi" | "customs" | "ccgateways">;
 
 /** Singleton (non-custom) backend kinds; custom gateways are addressed by ref. */
 const SINGLETON_KINDS = ["sub2api", "newapi", "oneapi"] as const;
@@ -191,6 +193,7 @@ function defaultBackendConfig(): BackendConfigStore {
     : [];
 
   const config: BackendConfigFields = {
+    ccgateways: [],
     sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null },
     newapi: {
       baseUrl: env.NEWAPI_BASE_URL,
@@ -232,6 +235,11 @@ export function isBackendRefConfigured(ref: BackendRef, config: BackendConfigFie
       const gateway = id ? config.customs.find((item) => item.id === id) : undefined;
       return Boolean(gateway?.url);
     }
+    case "ccgateway": {
+      const id = ccgatewayIdFromRef(ref);
+      const gateway = id ? config.ccgateways.find((item) => item.id === id) : undefined;
+      return Boolean(gateway?.baseUrl && gateway.vendorEmail && gateway.vendorPassword);
+    }
     default:
       return false;
   }
@@ -244,12 +252,20 @@ function configuredRefs(config: BackendConfigFields): BackendRef[] {
     const ref = customRef(gateway.id);
     if (isBackendRefConfigured(ref, config)) refs.push(ref);
   }
+  for (const gateway of config.ccgateways) {
+    const ref = ccgatewayRef(gateway.id);
+    if (isBackendRefConfigured(ref, config)) refs.push(ref);
+  }
   return refs;
 }
 
 /** The set of refs that exist at all (singletons + defined gateways), configured or not. */
-function knownRefs(customs: CustomGateway[]): Set<BackendRef> {
-  return new Set<BackendRef>([...SINGLETON_KINDS, ...customs.map((gateway) => customRef(gateway.id))]);
+function knownRefs(customs: CustomGateway[], ccgateways: CcGateway[]): Set<BackendRef> {
+  return new Set<BackendRef>([
+    ...SINGLETON_KINDS,
+    ...customs.map((gateway) => customRef(gateway.id)),
+    ...ccgateways.map((gateway) => ccgatewayRef(gateway.id)),
+  ]);
 }
 
 export async function getAccountStore(): Promise<LocalAccountStore> {
@@ -489,8 +505,28 @@ export async function deleteAccountPrefix(id: string) {
   });
 }
 
+/**
+ * One "Claude Gateway" (vendor) instance. Unlike a generic custom gateway, this
+ * one is driven by a vendor login: the adapter mints a short-lived JWT from
+ * `vendorEmail`/`vendorPassword`, then imports the finished Claude account by
+ * refresh token. `vendorPassword` is stored AES-encrypted (see lib/secret-box).
+ */
+export type CcGateway = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  vendorEmail: string;
+  /** AES-encrypted at rest (`enc:v1:…`); decrypted only inside the adapter. */
+  vendorPassword: string;
+  /** Target group id on the gateway; blank = auto-use the gateway's default group. */
+  groupId: string;
+};
+
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
 export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
+
+/** One ccgateway in a PATCH: blank `vendorPassword` keeps the stored (encrypted) one. */
+export type CcGatewayPatch = { id?: string; name?: string; baseUrl?: string; vendorEmail?: string; vendorPassword?: string; groupId?: string };
 
 export type BackendConfigPatch = {
   defaultBackend?: BackendRef;
@@ -499,6 +535,7 @@ export type BackendConfigPatch = {
   newapi?: Partial<RelayBackendConfig>;
   oneapi?: Partial<Omit<RelayBackendConfig, "userId">>;
   customs?: CustomGatewayPatch[];
+  ccgateways?: CcGatewayPatch[];
 };
 
 export async function getBackendConfigStore() {
@@ -514,9 +551,10 @@ export async function updateBackendSettings(patch: BackendConfigPatch) {
     if (patch.oneapi) backends.oneapi = { ...backends.oneapi, ...patch.oneapi };
     // Client submits the whole gateway list; merge by id so removed ones drop out.
     if (patch.customs) backends.customs = mergeCustomGateways(backends.customs, patch.customs);
+    if (patch.ccgateways) backends.ccgateways = mergeCcGateways(backends.ccgateways, patch.ccgateways);
 
     // enabled / default may point at gateways; keep them valid against the current set.
-    const known = knownRefs(backends.customs);
+    const known = knownRefs(backends.customs, backends.ccgateways);
     const nextEnabled = patch.enabled ?? backends.enabled;
     backends.enabled = nextEnabled.filter((ref) => known.has(ref));
     if (patch.defaultBackend && known.has(patch.defaultBackend)) backends.defaultBackend = patch.defaultBackend;
@@ -538,6 +576,30 @@ function mergeCustomGateways(existing: CustomGateway[], incoming: CustomGatewayP
       // Blank token means "unchanged" for an existing gateway.
       token: patch.token !== undefined && patch.token !== "" ? patch.token : prev?.token ?? "",
       listUrl: (patch.listUrl ?? prev?.listUrl ?? "").trim(),
+    };
+  });
+}
+
+/**
+ * Merge an incoming ccgateway list into the stored one. A blank `vendorPassword`
+ * keeps the stored (encrypted) one; a non-blank value is a fresh plaintext
+ * password that gets encrypted before it ever touches disk.
+ */
+function mergeCcGateways(existing: CcGateway[], incoming: CcGatewayPatch[]): CcGateway[] {
+  const byId = new Map(existing.map((gateway) => [gateway.id, gateway]));
+  return incoming.map((patch) => {
+    const prev = patch.id ? byId.get(patch.id) : undefined;
+    const nextPassword =
+      patch.vendorPassword !== undefined && patch.vendorPassword !== ""
+        ? encryptSecret(patch.vendorPassword)
+        : prev?.vendorPassword ?? "";
+    return {
+      id: patch.id || randomUUID(),
+      name: ((patch.name ?? prev?.name ?? "").trim()) || "Claude Gateway",
+      baseUrl: (patch.baseUrl ?? prev?.baseUrl ?? "").trim().replace(/\/$/, ""),
+      vendorEmail: (patch.vendorEmail ?? prev?.vendorEmail ?? "").trim(),
+      vendorPassword: nextPassword,
+      groupId: (patch.groupId ?? prev?.groupId ?? "").trim(),
     };
   });
 }
@@ -618,6 +680,7 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
   if (!value) return defaults;
 
   const customs = migrateCustomGateways(value, defaults.customs);
+  const ccgateways = normalizeCcGateways(value.ccgateways);
 
   const sub2api = { ...defaults.sub2api, ...(value.sub2api || {}) };
   const newapi = { ...defaults.newapi, ...(value.newapi || {}) };
@@ -626,7 +689,7 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
   // Legacy stores used the bare "custom" ref; remap it to the migrated gateway.
   const legacyCustomRef = customs[0] ? customRef(customs[0].id) : null;
   const mapRef = (ref: string): BackendRef => (ref === "custom" && legacyCustomRef ? legacyCustomRef : ref);
-  const known = knownRefs(customs);
+  const known = knownRefs(customs, ccgateways);
 
   const mappedEnabled = Array.isArray(value.enabled) ? value.enabled.map(mapRef).filter((ref) => known.has(ref)) : [];
   const enabled = mappedEnabled.length ? mappedEnabled : defaults.enabled;
@@ -639,7 +702,22 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
         ? defaults.defaultBackend
         : enabled[0] ?? "sub2api";
 
-  return { defaultBackend, enabled, sub2api, newapi, oneapi, customs };
+  return { defaultBackend, enabled, sub2api, newapi, oneapi, customs, ccgateways };
+}
+
+/** Coerce a persisted ccgateway array into the current shape (drops junk, keeps encrypted password). */
+function normalizeCcGateways(value: unknown): CcGateway[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((gateway): gateway is Record<string, unknown> => Boolean(gateway) && typeof gateway === "object")
+    .map((gateway) => ({
+      id: typeof gateway.id === "string" && gateway.id ? gateway.id : randomUUID(),
+      name: (typeof gateway.name === "string" && gateway.name.trim()) || "Claude Gateway",
+      baseUrl: typeof gateway.baseUrl === "string" ? gateway.baseUrl : "",
+      vendorEmail: typeof gateway.vendorEmail === "string" ? gateway.vendorEmail : "",
+      vendorPassword: typeof gateway.vendorPassword === "string" ? gateway.vendorPassword : "",
+      groupId: typeof gateway.groupId === "string" ? gateway.groupId : "",
+    }));
 }
 
 /** Prefer the new `customs` array; otherwise lift a legacy single `custom` into a gateway. */
