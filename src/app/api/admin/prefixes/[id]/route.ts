@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { canDeletePrefix, canManagePrefixes, getAccessContext } from "@/lib/access";
+import { canDeletePrefix, canEditPrefix, canManagePrefixes, getAccessContext } from "@/lib/access";
 import { addAuditEvent, deleteAccountPrefix, listAccountPrefixes, updateAccountPrefix } from "@/lib/account-store";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ const updatePrefixSchema = z.object({
   value: z.string().trim().min(1).max(60),
 });
 
-/** Rename a prefix (admin + superadmin may edit any). */
+/** Rename a prefix. superadmin may edit any; an admin only their own. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const context = await getAccessContext();
   if (!context) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -22,8 +22,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const { id } = await params;
-  const exists = (await listAccountPrefixes()).some((prefix) => prefix.id === id);
-  if (!exists) return NextResponse.json({ error: "prefix_not_found" }, { status: 404 });
+  const target = (await listAccountPrefixes()).find((prefix) => prefix.id === id);
+  if (!target) return NextResponse.json({ error: "prefix_not_found" }, { status: 404 });
+  // An admin may not rename a superadmin's prefix (view-only).
+  if (!canEditPrefix(context, target)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const prefix = await updateAccountPrefix(id, parsed.data.value);
   if (!prefix) return NextResponse.json({ error: "duplicate_prefix" }, { status: 409 });

@@ -1181,6 +1181,60 @@ select.text-input,
   font-size: 0.68rem;
 }
 
+/* View-only hint shown to an admin on a superadmin-owned prefix. */
+.prefix-readonly {
+  color: var(--faint);
+  font-size: 0.66rem;
+}
+
+/* In-app confirm/prompt modal — replaces window.confirm/prompt. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--ink) 42%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 24px 60px -28px color-mix(in srgb, var(--ink) 60%, transparent);
+}
+
+.modal-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* Keep both buttons compact side-by-side (oauth-button defaults to full width). */
+.modal-actions button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 92px;
+  white-space: nowrap;
+}
+
 /* ============================ System log ============================ */
 
 .log-toolbar {

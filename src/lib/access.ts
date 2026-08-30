@@ -154,3 +154,12 @@ export function canDeletePrefix(context: AccessContext, prefix: AccountPrefix): 
   if (context.role === "admin") return prefix.createdBy === context.session.userId;
   return false;
 }
+
+/**
+ * Whether the viewer may rename a specific prefix. Same ownership rule as delete:
+ * superadmin may edit any; an admin only the ones they created (a superadmin's
+ * prefix is view-only to an admin); a `user` may not edit.
+ */
+export function canEditPrefix(context: AccessContext, prefix: AccountPrefix): boolean {
+  return canDeletePrefix(context, prefix);
+}

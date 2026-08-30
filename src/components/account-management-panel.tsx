@@ -62,6 +62,19 @@ const emptySettings: Settings = {
   forcedPrefixEnabled: false,
 };
 
+/** In-app modal state — replaces window.confirm/prompt (blocked in embedded/WebView contexts). */
+type DialogState =
+  | { kind: "confirm"; title: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void | Promise<void> }
+  | {
+      kind: "prompt";
+      title: string;
+      label?: string;
+      initial?: string;
+      inputType?: "text" | "password";
+      confirmLabel?: string;
+      onConfirm: (value: string) => void | Promise<void>;
+    };
+
 export default function AccountManagementPanel({ role }: AccountManagementPanelProps) {
   const { t } = useI18n();
   const router = useRouter();
@@ -80,8 +93,30 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialogInput, setDialogInput] = useState("");
 
   const isSuperadmin = role === "superadmin";
+
+  function openConfirm(opts: Omit<Extract<DialogState, { kind: "confirm" }>, "kind">) {
+    setDialog({ kind: "confirm", ...opts });
+  }
+  function openPrompt(opts: Omit<Extract<DialogState, { kind: "prompt" }>, "kind">) {
+    setDialogInput(opts.initial ?? "");
+    setDialog({ kind: "prompt", ...opts });
+  }
+  function closeDialog() {
+    setDialog(null);
+    setDialogInput("");
+  }
+  async function confirmDialog() {
+    const current = dialog;
+    if (!current) return;
+    const value = dialogInput;
+    closeDialog();
+    if (current.kind === "prompt") await current.onConfirm(value);
+    else await current.onConfirm();
+  }
   const redirectToLogin = useCallback(() => {
     router.replace("/");
     router.refresh();
@@ -166,11 +201,21 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function renamePrefix(prefix: PrefixItem) {
-    const next = window.prompt(t("修改前缀（当前：{value}）", { value: prefix.value }), prefix.value);
-    if (next === null) return;
-    const value = next.trim();
-    if (!value || value === prefix.value) return;
+  function renamePrefix(prefix: PrefixItem) {
+    openPrompt({
+      title: t("修改前缀（当前：{value}）", { value: prefix.value }),
+      label: t("新前缀"),
+      initial: prefix.value,
+      confirmLabel: t("保存"),
+      onConfirm: (next) => {
+        const value = next.trim();
+        if (!value || value === prefix.value) return;
+        return submitRenamePrefix(prefix, value);
+      },
+    });
+  }
+
+  async function submitRenamePrefix(prefix: PrefixItem, value: string) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -196,8 +241,16 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function removePrefix(prefix: PrefixItem) {
-    if (!window.confirm(t("确定删除前缀 {value} 吗？", { value: prefix.value }))) return;
+  function removePrefix(prefix: PrefixItem) {
+    openConfirm({
+      title: t("确定删除前缀 {value} 吗？", { value: prefix.value }),
+      danger: true,
+      confirmLabel: t("删除"),
+      onConfirm: () => submitRemovePrefix(prefix),
+    });
+  }
+
+  async function submitRemovePrefix(prefix: PrefixItem) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -287,8 +340,16 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function deleteAccount(account: ManagedAccount) {
-    if (!window.confirm(t("确定删除本地账号 {name} 吗？这不会删除 Sub2API 账号。", { name: account.username }))) return;
+  function deleteAccount(account: ManagedAccount) {
+    openConfirm({
+      title: t("确定删除本地账号 {name} 吗？这不会删除 Sub2API 账号。", { name: account.username }),
+      danger: true,
+      confirmLabel: t("删除"),
+      onConfirm: () => submitDeleteAccount(account),
+    });
+  }
+
+  async function submitDeleteAccount(account: ManagedAccount) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -312,14 +373,24 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function resetPassword(account: ManagedAccount) {
-    const nextPassword = window.prompt(t("为 {name} 设置新密码（至少 10 位）", { name: account.username }));
-    if (!nextPassword) return;
-    if (nextPassword.length < 10) {
-      setError(t("新密码至少需要 10 位。"));
-      return;
-    }
+  function resetPassword(account: ManagedAccount) {
+    openPrompt({
+      title: t("为 {name} 设置新密码（至少 10 位）", { name: account.username }),
+      label: t("新密码"),
+      inputType: "password",
+      confirmLabel: t("重置"),
+      onConfirm: (nextPassword) => {
+        if (!nextPassword) return;
+        if (nextPassword.length < 10) {
+          setError(t("新密码至少需要 10 位。"));
+          return;
+        }
+        return submitResetPassword(account, nextPassword);
+      },
+    });
+  }
 
+  async function submitResetPassword(account: ManagedAccount, nextPassword: string) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -473,7 +544,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
             <p className="management-help">
               {isSuperadmin
                 ? t("管理强制上号前缀，超管可增删改任意前缀。")
-                : t("管理强制上号前缀，可添加与修改，仅能删除本人添加的。")}
+                : t("管理强制上号前缀，可添加；仅能修改/删除本人添加的，超管的前缀只能查看。")}
             </p>
           </div>
           <form className="prefix-add" onSubmit={addPrefix}>
@@ -493,20 +564,25 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           {prefixes.length ? (
             <ul className="prefix-list">
               {prefixes.map((prefix) => {
-                const canDelete = isSuperadmin || prefix.createdBy === currentUserId;
+                // superadmin manages any; an admin only their own — a superadmin's prefix is view-only.
+                const canModify = isSuperadmin || prefix.createdBy === currentUserId;
                 return (
                   <li className="prefix-row" key={prefix.id}>
                     <span className="prefix-value">{prefix.value}</span>
                     <span className="prefix-owner">{prefix.createdByName}</span>
                     <span className="prefix-row-actions">
-                      <button className="secondary-button compact-button" type="button" onClick={() => void renamePrefix(prefix)} disabled={saving}>
-                        {t("修改")}
-                      </button>
-                      {canDelete ? (
-                        <button className="danger-button" type="button" onClick={() => void removePrefix(prefix)} disabled={saving}>
-                          {t("删除")}
-                        </button>
-                      ) : null}
+                      {canModify ? (
+                        <>
+                          <button className="secondary-button compact-button" type="button" onClick={() => void renamePrefix(prefix)} disabled={saving}>
+                            {t("修改")}
+                          </button>
+                          <button className="danger-button" type="button" onClick={() => void removePrefix(prefix)} disabled={saving}>
+                            {t("删除")}
+                          </button>
+                        </>
+                      ) : (
+                        <span className="prefix-readonly">{t("仅查看")}</span>
+                      )}
                     </span>
                   </li>
                 );
@@ -593,6 +669,45 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <p className="empty-state">{t("还没有本地账号。先创建一个管理员或普通用户。")}</p>
         )}
       </div>
+
+      {dialog ? (
+        <div className="modal-overlay" role="presentation" onClick={closeDialog}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <p className="modal-title">{dialog.title}</p>
+            {dialog.kind === "prompt" ? (
+              <>
+                {dialog.label ? <label className="field-label" htmlFor="dialog-input">{dialog.label}</label> : null}
+                <input
+                  id="dialog-input"
+                  className="text-input"
+                  type={dialog.inputType ?? "text"}
+                  value={dialogInput}
+                  autoFocus
+                  autoComplete={dialog.inputType === "password" ? "new-password" : "off"}
+                  onChange={(event) => setDialogInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void confirmDialog();
+                    if (event.key === "Escape") closeDialog();
+                  }}
+                />
+              </>
+            ) : null}
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={closeDialog} disabled={saving}>
+                {t("取消")}
+              </button>
+              <button
+                className={dialog.kind === "confirm" && dialog.danger ? "danger-button" : "oauth-button"}
+                type="button"
+                onClick={() => void confirmDialog()}
+                disabled={saving}
+              >
+                {dialog.confirmLabel ?? t("确定")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
     </section>
   );
