@@ -1,4 +1,5 @@
 import { getAccountStore, findLocalAccountById, type AccountPrefix, type LocalAccountStore } from "@/lib/account-store";
+import type { BackendRef } from "@/lib/backends/kinds";
 import { getCurrentSession, type AdminSession } from "@/lib/session";
 import type { Role } from "@/lib/roles";
 
@@ -6,6 +7,11 @@ export type AccessContext = {
   session: AdminSession;
   role: Role;
   store: LocalAccountStore;
+  /**
+   * The account's superadmin-assigned platform. `null` for the superadmin (who
+   * chooses freely) and for an admin/user with no assignment yet (blocked).
+   */
+  targetBackend: BackendRef | null;
 };
 
 export async function getAccessContext(): Promise<AccessContext | null> {
@@ -13,7 +19,7 @@ export async function getAccessContext(): Promise<AccessContext | null> {
   if (!session) return null;
 
   if (session.userId === "env-superadmin") {
-    return { session, role: "superadmin", store: await getAccountStore() };
+    return { session, role: "superadmin", store: await getAccountStore(), targetBackend: null };
   }
 
   const account = await findLocalAccountById(session.userId);
@@ -29,6 +35,7 @@ export async function getAccessContext(): Promise<AccessContext | null> {
     },
     role: account.role,
     store: await getAccountStore(),
+    targetBackend: account.targetBackend ?? null,
   };
 }
 
@@ -75,13 +82,24 @@ export function canUseCustomProxy(context: AccessContext): boolean {
 }
 
 /**
- * Whether the viewer may choose the target platform. admin/superadmin always may;
- * a regular `user` only when the toggle is on — otherwise they are locked to the
- * superadmin default backend.
+ * Whether the viewer may freely choose the target platform in the wizard. Only
+ * the superadmin may — admin and user are locked to their assigned platform
+ * (see {@link effectiveTargetBackend}).
  */
 export function canSelectBackend(context: AccessContext): boolean {
-  if (context.role !== "user") return true;
-  return context.store.settings.allowUserSelectBackend;
+  return context.role === "superadmin";
+}
+
+/**
+ * The platform an admin/user is locked to for onboarding and pool review.
+ * - superadmin: `null` (free to target any enabled platform)
+ * - admin/user: their superadmin-assigned platform, or `null` when unassigned.
+ *   Callers MUST block onboarding/pool access when this is `null` for a
+ *   non-superadmin — an unassigned account has no platform to act on.
+ */
+export function effectiveTargetBackend(context: AccessContext): BackendRef | null {
+  if (context.role === "superadmin") return null;
+  return context.targetBackend;
 }
 
 /**

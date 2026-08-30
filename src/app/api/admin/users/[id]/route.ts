@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { addAuditEvent, deleteLocalAccount, toPublicAccount, updateLocalAccount } from "@/lib/account-store";
 import { getAccessContext } from "@/lib/access";
+import { selectableBackends } from "@/lib/backend-config";
 import { roleValues } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,8 @@ const updateUserSchema = z.object({
   displayName: z.string().trim().min(1).max(100).optional(),
   role: z.enum([roleValues[1], roleValues[2]]).optional(),
   disabled: z.boolean().optional(),
+  // `null` unassigns the target platform; a ref must be enabled + configured.
+  targetBackend: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -21,6 +24,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const parsed = updateUserSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // A non-null target must be an enabled + configured platform.
+  if (parsed.data.targetBackend != null) {
+    const { items } = await selectableBackends();
+    if (!items.some((item) => item.ref === parsed.data.targetBackend)) {
+      return NextResponse.json({ error: "invalid_target_backend" }, { status: 400 });
+    }
   }
 
   const { id } = await params;

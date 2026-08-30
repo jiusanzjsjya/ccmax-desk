@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { accountPoolAccess, getAccessContext } from "@/lib/access";
+import { accountPoolAccess, effectiveTargetBackend, getAccessContext } from "@/lib/access";
 import { getBackendConfigStore } from "@/lib/account-store";
 import { customRef } from "@/lib/backends/kinds";
 
@@ -30,5 +30,16 @@ export async function GET() {
     })),
   ];
 
-  return NextResponse.json({ default: "sub2api", items });
+  // Superadmin sees every platform's pool; admin/user are locked to their
+  // assigned platform (mirrors the onboarding lock).
+  if (context.role === "superadmin") {
+    return NextResponse.json({ default: "sub2api", items });
+  }
+
+  const target = effectiveTargetBackend(context);
+  if (!target) {
+    return NextResponse.json({ default: null, items: [], targetUnassigned: true });
+  }
+  const locked = items.filter((item) => item.ref === target);
+  return NextResponse.json({ default: target, items: locked });
 }

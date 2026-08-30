@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { canSelectBackend, getAccessContext, provisioningAccess } from "@/lib/access";
+import { effectiveTargetBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { recordPoolOwnership } from "@/lib/account-store";
 import { isBackendConfigured, isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveBackend, resolveOAuthBroker } from "@/lib/backends/registry";
@@ -61,9 +61,20 @@ export async function POST(request: Request) {
     prefixValue = prefix.value;
   }
 
-  // A user without select permission is locked to the default backend: drop any
-  // client-supplied target so resolveBackend() falls back to the superadmin default.
-  const targetBackend = canSelectBackend(context) ? parsed.data.backend : undefined;
+  // Platform resolution:
+  // - superadmin: honour the client-picked target (or fall back to the default).
+  // - admin/user: force their superadmin-assigned platform, ignoring any client
+  //   value. An unassigned account has no platform to onboard on — block it.
+  let targetBackend: string | undefined;
+  if (context.role === "superadmin") {
+    targetBackend = parsed.data.backend;
+  } else {
+    const assigned = effectiveTargetBackend(context);
+    if (!assigned) {
+      return NextResponse.json({ error: "target_platform_unassigned" }, { status: 403 });
+    }
+    targetBackend = assigned;
+  }
 
   if (targetBackend && !(await isBackendConfigured(targetBackend))) {
     return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });

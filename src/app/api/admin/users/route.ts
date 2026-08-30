@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { AccountStoreError, addAuditEvent, createLocalAccount, getAccountStore, toPublicAccount } from "@/lib/account-store";
 import { getAccessContext, roleCanCreateUsers } from "@/lib/access";
+import { selectableBackends } from "@/lib/backend-config";
 import { roleValues } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,9 @@ const createUserSchema = z.object({
   displayName: z.string().trim().min(1).max(100),
   password: z.string().min(10).max(200),
   role: z.enum([roleValues[1], roleValues[2]]).default("user"),
+  // Superadmin may set the new account's target platform explicitly; ignored for
+  // an admin creator (their own platform is snapshotted instead).
+  targetBackend: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function GET() {
@@ -20,14 +24,18 @@ export async function GET() {
   if (context.role === "user") return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const store = await getAccountStore();
+  // Platforms a superadmin may assign to an account (enabled + configured).
+  const { items: assignablePlatforms } = await selectableBackends();
   return NextResponse.json({
     items: store.accounts.map(toPublicAccount),
     settings: store.settings,
+    assignablePlatforms,
     currentUser: {
       id: context.session.userId,
       username: context.session.username,
       displayName: context.session.displayName,
       role: context.role,
+      targetBackend: context.targetBackend,
     },
     permissions: {
       canCreateUsers: roleCanCreateUsers(context.role, store.settings),
@@ -55,8 +63,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "admin_can_only_create_users" }, { status: 403 });
   }
 
+  // Snapshot the new account's target platform:
+  // - superadmin: honour an explicit choice (validated), else leave unassigned.
+  // - admin: inherit the admin's own assigned platform at creation time.
+  let targetBackend: string | null = null;
+  if (context.role === "superadmin") {
+    if (parsed.data.targetBackend != null) {
+      const { items } = await selectableBackends();
+      if (!items.some((item) => item.ref === parsed.data.targetBackend)) {
+        return NextResponse.json({ error: "invalid_target_backend" }, { status: 400 });
+      }
+      targetBackend = parsed.data.targetBackend;
+    }
+  } else {
+    targetBackend = context.targetBackend;
+  }
+
   try {
-    const account = await createLocalAccount({ ...parsed.data, createdBy: context.session.userId });
+    const account = await createLocalAccount({ ...parsed.data, createdBy: context.session.userId, targetBackend });
     await addAuditEvent({
       actorId: context.session.userId,
       actorName: context.session.displayName,

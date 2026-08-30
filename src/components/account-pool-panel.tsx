@@ -209,8 +209,11 @@ export default function AccountPoolPanel({ sub2ApiConfigured }: { sub2ApiConfigu
     let active = true;
     void fetch("/api/provisioning/pool/platforms", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { items?: PlatformOption[] } | null) => {
-        if (active && payload?.items?.length) setPlatforms(payload.items);
+      .then((payload: { default?: string | null; items?: PlatformOption[] } | null) => {
+        if (!active || !payload) return;
+        if (payload.items?.length) setPlatforms(payload.items);
+        // Lock a scoped admin/user's view onto their assigned platform.
+        if (payload.default) setPlatform(payload.default);
       })
       .catch(() => {});
     return () => {

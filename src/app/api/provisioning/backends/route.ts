@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { canSelectBackend, getAccessContext, provisioningAccess } from "@/lib/access";
+import { effectiveTargetBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { selectableBackends } from "@/lib/backend-config";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +18,22 @@ export async function GET() {
   // items: [{ ref, kind, label }] — ref is the value the wizard sends back.
   const { default: defaultBackend, items } = await selectableBackends();
 
-  // A user without select permission is locked to the default: expose only that
-  // option and signal `canSelect: false` so the wizard hides the platform picker.
-  const canSelect = canSelectBackend(context);
-  const visibleItems = canSelect ? items : items.filter((item) => item.ref === defaultBackend);
-  return NextResponse.json({ default: defaultBackend, items: visibleItems, canSelect });
+  // Superadmin chooses freely across every enabled + configured platform.
+  if (context.role === "superadmin") {
+    return NextResponse.json({ default: defaultBackend, items, canSelect: true });
+  }
+
+  // admin/user are locked to their superadmin-assigned platform.
+  const target = effectiveTargetBackend(context);
+  if (!target) {
+    // No platform assigned yet — the wizard must block onboarding.
+    return NextResponse.json({ default: defaultBackend, items: [], canSelect: false, targetUnassigned: true });
+  }
+
+  const locked = items.filter((item) => item.ref === target);
+  if (locked.length === 0) {
+    // Assigned platform is no longer enabled/configured — surface it as unusable.
+    return NextResponse.json({ default: target, items: [], canSelect: false, targetUnavailable: true });
+  }
+  return NextResponse.json({ default: target, items: locked, canSelect: false });
 }

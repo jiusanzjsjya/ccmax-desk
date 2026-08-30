@@ -76,6 +76,9 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   const [backends, setBackends] = useState<BackendOption[]>([]);
   const [selectedBackend, setSelectedBackend] = useState("");
   const [backendSelectable, setBackendSelectable] = useState(true);
+  // For a locked admin/user: "" = ok, "unassigned" = no platform assigned,
+  // "unavailable" = assigned platform is no longer enabled/configured.
+  const [platformNotice, setPlatformNotice] = useState<"" | "unassigned" | "unavailable">("");
   const [country, setCountry] = useState(DEFAULT_COUNTRY);
   const [proxyTest, setProxyTest] = useState<{ status: "idle" | "testing" | "ok" | "error"; message: string }>({
     status: "idle",
@@ -191,9 +194,27 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
       try {
         const response = await fetch("/api/provisioning/backends", { cache: "no-store" });
         if (!response.ok) return;
-        const payload = (await response.json().catch(() => ({}))) as { default?: string; items?: BackendOption[]; canSelect?: boolean };
-        if (cancelled || !payload.items?.length) return;
-        // Locked users (canSelect === false) are pinned to the default platform; hide the picker.
+        const payload = (await response.json().catch(() => ({}))) as {
+          default?: string;
+          items?: BackendOption[];
+          canSelect?: boolean;
+          targetUnassigned?: boolean;
+          targetUnavailable?: boolean;
+        };
+        if (cancelled) return;
+        // A locked admin/user with no usable platform: surface the reason and block.
+        if (payload.targetUnassigned) {
+          setBackendSelectable(false);
+          setPlatformNotice("unassigned");
+          return;
+        }
+        if (payload.targetUnavailable) {
+          setBackendSelectable(false);
+          setPlatformNotice("unavailable");
+          return;
+        }
+        if (!payload.items?.length) return;
+        // Locked users (canSelect === false) are pinned to their assigned platform; hide the picker.
         setBackendSelectable(payload.canSelect !== false);
         setBackends(payload.items);
         setSelectedBackend(payload.default && payload.items.some((item) => item.ref === payload.default)
@@ -423,6 +444,20 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
             ))}
           </select>
         </div>
+      ) : backends.length && !backendSelectable ? (
+        // Locked admin/user: platform is fixed by the superadmin, shown read-only.
+        <div className="target-backend-bar">
+          <span className="field-label">{t("目标平台")}</span>
+          <span className="target-backend-locked">{backends[0].label}</span>
+        </div>
+      ) : null}
+
+      {platformNotice ? (
+        <div className="error-box" role="alert">
+          {platformNotice === "unassigned"
+            ? t("尚未分配目标平台，暂时无法上号，请联系超级管理员分配。")
+            : t("分配的目标平台当前不可用，请联系超级管理员检查平台配置。")}
+        </div>
       ) : null}
 
       <div className={`workspace-nav ${canViewAccountPool ? "" : "is-compact"}`} role="tablist" aria-label={t("账号接入视图")}>
@@ -457,6 +492,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           notes={notes}
           loading={loading}
           configured={configured}
+          platformBlocked={Boolean(platformNotice)}
           message={message}
           error={error}
           now={now}
@@ -528,6 +564,7 @@ function WizardView({
   notes,
   loading,
   configured,
+  platformBlocked,
   message,
   error,
   now,
@@ -559,6 +596,7 @@ function WizardView({
   notes: string;
   loading: boolean;
   configured: boolean;
+  platformBlocked: boolean;
   message: string;
   error: string;
   now: number;
@@ -727,7 +765,7 @@ function WizardView({
           ) : null}
         </div>
         <div className="wizard-actions">
-          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading || (prefixEnabled && !prefixId)}>
+          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading || platformBlocked || (prefixEnabled && !prefixId)}>
             {loading ? t("正在生成...") : t("生成 {n} 个授权槽位", { n: batchCount })}
           </button>
           {activeSlots.length ? (
@@ -1158,9 +1196,9 @@ function readApiError(t: TFn, status: number, error: string | undefined, fallbac
     return t("Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。");
   }
   if (status === 403) {
-    return error === "user_provisioning_disabled"
-      ? t("超级管理员已暂停普通用户上号，请联系管理员。")
-      : t("当前角色或系统开关不允许执行此操作。");
+    if (error === "user_provisioning_disabled") return t("超级管理员已暂停普通用户上号，请联系管理员。");
+    if (error === "target_platform_unassigned") return t("尚未分配目标平台，暂时无法上号，请联系超级管理员分配。");
+    return t("当前角色或系统开关不允许执行此操作。");
   }
   if (status === 410) return t("授权槽位已过期，请重新生成。");
   if (status === 503 && error === "provisioning_disabled") return t("超级管理员已暂停 Claude 上号流程。");

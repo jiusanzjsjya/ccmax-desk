@@ -1076,6 +1076,13 @@ select.text-input,
   font-size: 0.66rem;
 }
 
+/* Per-account target platform line in the user list. */
+.managed-user-platform {
+  color: var(--accent) !important;
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+}
+
 .managed-user-actions {
   display: flex;
   align-items: center;
@@ -1392,6 +1399,13 @@ select.text-input,
 .target-backend-bar .text-input {
   max-width: 340px;
   background: var(--surface);
+}
+
+/* Read-only platform label shown to a locked admin/user. */
+.target-backend-locked {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--accent);
 }
 
 .gateway-section {

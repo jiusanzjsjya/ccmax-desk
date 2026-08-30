@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { accountPoolAccess, getAccessContext, poolScope } from "@/lib/access";
+import { accountPoolAccess, effectiveTargetBackend, getAccessContext, poolScope } from "@/lib/access";
 import { listOwnedAccountIds } from "@/lib/account-store";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { refKind } from "@/lib/backends/kinds";
@@ -38,7 +38,14 @@ export async function GET(request: Request) {
   if (!accountPoolAccess(context)) return NextResponse.json({ error: "account_pool_forbidden" }, { status: 403 });
 
   const params = new URL(request.url).searchParams;
-  const platform = (params.get("platform") || "sub2api").slice(0, 80);
+  let platform = (params.get("platform") || "sub2api").slice(0, 80);
+  // admin/user may only read their assigned platform's pool — override the
+  // client-supplied value so the lock can't be bypassed via the query string.
+  if (context.role !== "superadmin") {
+    const target = effectiveTargetBackend(context);
+    if (!target) return NextResponse.json({ pending: true, platform: null, targetUnassigned: true });
+    platform = target;
+  }
   // Non-Sub2API platforms have no browsable pool yet — placeholder, checked
   // before Sub2API config so selecting a gateway never 503s on Sub2API setup.
   if (refKind(platform) !== "sub2api") {

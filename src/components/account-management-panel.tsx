@@ -19,7 +19,12 @@ type ManagedAccount = {
   createdAt: string;
   createdBy: string;
   lastLoginAt: string | null;
+  /** Superadmin-assigned onboarding/pool platform; null = unassigned. */
+  targetBackend: string | null;
 };
+
+/** An assignable target platform (enabled + configured), from the users API. */
+type Platform = { ref: string; kind: string; label: string };
 
 type Settings = {
   provisioningEnabled: boolean;
@@ -30,7 +35,6 @@ type Settings = {
   scopeAccountPoolByOwner: boolean;
   settlementModuleEnabled: boolean;
   allowUserCustomProxy: boolean;
-  allowUserSelectBackend: boolean;
   allowUserLedgerWrite: boolean;
   forcedPrefixEnabled: boolean;
 };
@@ -54,7 +58,6 @@ const emptySettings: Settings = {
   scopeAccountPoolByOwner: true,
   settlementModuleEnabled: true,
   allowUserCustomProxy: true,
-  allowUserSelectBackend: true,
   allowUserLedgerWrite: false,
   forcedPrefixEnabled: false,
 };
@@ -64,6 +67,8 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
   const router = useRouter();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [settings, setSettings] = useState<Settings>(emptySettings);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [newTargetBackend, setNewTargetBackend] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [prefixes, setPrefixes] = useState<PrefixItem[]>([]);
   const [newPrefix, setNewPrefix] = useState("");
@@ -91,6 +96,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const payload = (await response.json().catch(() => ({}))) as {
         items?: ManagedAccount[];
         settings?: Settings;
+        assignablePlatforms?: Platform[];
         currentUser?: { id: string };
         error?: string;
       };
@@ -102,6 +108,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
 
       setAccounts(payload.items);
       if (payload.settings) setSettings(payload.settings);
+      if (payload.assignablePlatforms) setPlatforms(payload.assignablePlatforms);
       if (payload.currentUser) setCurrentUserId(payload.currentUser.id);
     } catch {
       setError(t("无法读取本地账号管理数据。"));
@@ -222,7 +229,14 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       const response = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, displayName, password, role: newRole }),
+        body: JSON.stringify({
+          username,
+          displayName,
+          password,
+          role: newRole,
+          // Only the superadmin picks a platform; an admin's new user inherits the admin's.
+          ...(isSuperadmin ? { targetBackend: newTargetBackend || null } : {}),
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as { account?: ManagedAccount; message?: string; error?: string };
       if (redirectOnUnauthorized(response, redirectToLogin)) return;
@@ -235,6 +249,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       setUsername("");
       setDisplayName("");
       setPassword("");
+      setNewTargetBackend("");
       setMessage(t("账号 {name} 已创建。", { name: payload.account.username }));
       if (isSuperadmin) void refresh();
     } catch {
@@ -244,7 +259,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function updateAccount(account: ManagedAccount, patch: { role?: "admin" | "user"; disabled?: boolean }) {
+  async function updateAccount(account: ManagedAccount, patch: { role?: "admin" | "user"; disabled?: boolean; targetBackend?: string | null }) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -407,6 +422,14 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
                 <option value="admin">{t("管理员")}</option>
                 <option value="user">{t("普通用户")}</option>
               </select>
+              <label className="field-label" htmlFor="new-account-backend">{t("目标平台")}</label>
+              <select id="new-account-backend" className="text-input" value={newTargetBackend} onChange={(event) => setNewTargetBackend(event.target.value)} disabled={saving}>
+                <option value="">{t("暂不分配")}</option>
+                {platforms.map((platform) => (
+                  <option key={platform.ref} value={platform.ref}>{platform.label}</option>
+                ))}
+              </select>
+              <p className="management-help">{t("上号与账号池将锁定在此平台；管理员创建的用户会继承管理员的平台。")}</p>
             </>
           ) : null}
           <label className="field-label" htmlFor="new-account-password">{t("初始密码")}</label>
@@ -439,7 +462,6 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label={t("普通用户仅见本人上号的账号")} checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
           <SettingToggle label={t("启用数据分析结算模块")} checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
           <SettingToggle label={t("允许普通用户使用自建代理")} checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
-          <SettingToggle label={t("允许普通用户选择目标平台")} checked={settings.allowUserSelectBackend} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserSelectBackend", value)} />
           <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
           <SettingToggle label={t("启用强制前缀")} checked={settings.forcedPrefixEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedPrefixEnabled", value)} />
         </div>
@@ -516,6 +538,9 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
                 <div className="managed-user-identity">
                   <strong>{account.displayName}</strong>
                   <span>@{account.username} · {t("创建于 {date}", { date: formatDate(account.createdAt) })}</span>
+                  <span className="managed-user-platform">
+                    {t("目标平台")}：{account.targetBackend ? platformLabel(account.targetBackend, platforms) : t("未分配")}
+                  </span>
                 </div>
                 <div className="managed-user-actions">
                   {isSuperadmin ? (
@@ -526,6 +551,24 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
                   ) : (
                     <span className="role-chip">{t(roleLabel(account.role))}</span>
                   )}
+                  {isSuperadmin ? (
+                    <select
+                      className="role-select"
+                      value={account.targetBackend ?? ""}
+                      onChange={(event) => void updateAccount(account, { targetBackend: event.target.value || null })}
+                      disabled={saving}
+                      aria-label={t("{name} 目标平台", { name: account.username })}
+                    >
+                      <option value="">{t("未分配")}</option>
+                      {platforms.map((platform) => (
+                        <option key={platform.ref} value={platform.ref}>{platform.label}</option>
+                      ))}
+                      {/* Keep a stale assignment visible even if its platform is no longer enabled. */}
+                      {account.targetBackend && !platforms.some((platform) => platform.ref === account.targetBackend) ? (
+                        <option value={account.targetBackend}>{account.targetBackend}</option>
+                      ) : null}
+                    </select>
+                  ) : null}
                   <span className={`account-status ${account.disabled ? "is-dead" : "is-alive"}`}>{account.disabled ? t("已停用") : t("正常")}</span>
                   {isSuperadmin ? (
                     <button className="secondary-button compact-button" type="button" onClick={() => void updateAccount(account, { disabled: !account.disabled })} disabled={saving}>
@@ -563,6 +606,11 @@ function SettingToggle({ label, checked, disabled, onChange }: { label: string; 
       <i aria-hidden="true" />
     </label>
   );
+}
+
+/** Display label for a target-platform ref, falling back to the raw ref. */
+function platformLabel(ref: string, platforms: Platform[]) {
+  return platforms.find((platform) => platform.ref === ref)?.label ?? ref;
 }
 
 function formatDate(value: string) {

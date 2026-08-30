@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { accountPoolAccess, getAccessContext, poolScope } from "@/lib/access";
+import { accountPoolAccess, effectiveTargetBackend, getAccessContext, poolScope } from "@/lib/access";
 import { listOwnedAccountIds } from "@/lib/account-store";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { refKind } from "@/lib/backends/kinds";
@@ -28,7 +28,13 @@ export async function GET(request: Request) {
   if (!accountPoolAccess(context)) return NextResponse.json({ error: "account_pool_forbidden" }, { status: 403 });
 
   const params = new URL(request.url).searchParams;
-  const platform = (params.get("platform") || "sub2api").slice(0, 80);
+  let platform = (params.get("platform") || "sub2api").slice(0, 80);
+  // admin/user are locked to their assigned platform — override the query value.
+  if (context.role !== "superadmin") {
+    const target = effectiveTargetBackend(context);
+    if (!target) return NextResponse.json({ pending: true, platform: null, targetUnassigned: true });
+    platform = target;
+  }
   if (refKind(platform) !== "sub2api") {
     return NextResponse.json({ pending: true, platform });
   }

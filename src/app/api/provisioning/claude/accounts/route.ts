@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { accountPoolAccess, getAccessContext } from "@/lib/access";
+import { accountPoolAccess, effectiveTargetBackend, getAccessContext } from "@/lib/access";
 import { isBackendConfigured } from "@/lib/backend-config";
 import { resolveBackend } from "@/lib/backends/registry";
 import { mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
@@ -19,8 +19,17 @@ export async function GET(request: Request) {
   }
 
   // A backend ref ("sub2api" | "newapi" | "oneapi" | "custom:<id>"); omitted → default.
-  const backendParam = new URL(request.url).searchParams.get("backend");
-  const backend = backendParam && backendParam.length <= 80 ? backendParam : undefined;
+  // Superadmin may target any backend; admin/user are locked to their assigned
+  // platform, so the client-supplied ref is ignored for them.
+  let backend: string | undefined;
+  if (context.role === "superadmin") {
+    const backendParam = new URL(request.url).searchParams.get("backend");
+    backend = backendParam && backendParam.length <= 80 ? backendParam : undefined;
+  } else {
+    const target = effectiveTargetBackend(context);
+    if (!target) return NextResponse.json({ error: "target_platform_unassigned" }, { status: 403 });
+    backend = target;
+  }
 
   if (backend && !(await isBackendConfigured(backend))) {
     return NextResponse.json({ error: "backend_not_configured" }, { status: 503 });

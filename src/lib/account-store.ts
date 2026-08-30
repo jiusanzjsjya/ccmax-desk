@@ -11,6 +11,12 @@ export type LocalAccount = {
   username: string;
   displayName: string;
   role: Exclude<Role, "superadmin">;
+  /**
+   * Superadmin-assigned target platform this account onboards on and reviews the
+   * pool of. `null` = unassigned; onboarding and pool access are blocked until a
+   * superadmin assigns one. Admin-created users snapshot their admin's value.
+   */
+  targetBackend: BackendRef | null;
   passwordHash: string;
   disabled: boolean;
   createdAt: string;
@@ -265,6 +271,7 @@ export async function createLocalAccount(input: {
   password: string;
   role: Exclude<Role, "superadmin">;
   createdBy: string;
+  targetBackend?: BackendRef | null;
 }) {
   return mutateStore((store) => {
     const username = normalizeUsername(input.username);
@@ -278,6 +285,7 @@ export async function createLocalAccount(input: {
       username,
       displayName: input.displayName.trim() || username,
       role: input.role,
+      targetBackend: input.targetBackend ?? null,
       passwordHash: hashPassword(input.password),
       disabled: false,
       createdAt: now,
@@ -328,7 +336,7 @@ export async function markAccountLogin(accountId: string) {
 
 export async function updateLocalAccount(
   accountId: string,
-  input: { role?: Exclude<Role, "superadmin">; disabled?: boolean; displayName?: string },
+  input: { role?: Exclude<Role, "superadmin">; disabled?: boolean; displayName?: string; targetBackend?: BackendRef | null },
 ) {
   return mutateStore((store) => {
     const account = store.accounts.find((item) => item.id === accountId);
@@ -339,6 +347,8 @@ export async function updateLocalAccount(
     if (typeof input.displayName === "string" && input.displayName.trim()) {
       account.displayName = input.displayName.trim();
     }
+    // `null` unassigns; `undefined` leaves it untouched.
+    if (input.targetBackend !== undefined) account.targetBackend = input.targetBackend;
     account.updatedAt = new Date().toISOString();
     return account;
   });
@@ -585,7 +595,7 @@ function emptyStore(): LocalAccountStore {
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
   return {
-    accounts: Array.isArray(value.accounts) ? value.accounts : [],
+    accounts: Array.isArray(value.accounts) ? value.accounts.map(normalizeAccount) : [],
     settings: { ...defaultSettings, ...(value.settings || {}) },
     audit: Array.isArray(value.audit) ? value.audit.slice(0, 300) : [],
     backends: normalizeBackends(value.backends),
@@ -593,6 +603,11 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     ledger: Array.isArray(value.ledger) ? value.ledger : [],
     accountPrefixes: Array.isArray(value.accountPrefixes) ? value.accountPrefixes : [],
   };
+}
+
+/** Backfill fields added after a store was first written (legacy accounts). */
+function normalizeAccount(account: LocalAccount): LocalAccount {
+  return { ...account, targetBackend: account.targetBackend ?? null };
 }
 
 /** Persisted shape may predate `customs` (single `custom`) — accept both. */
