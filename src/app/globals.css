@@ -1187,6 +1187,18 @@ select.text-input,
   font-size: 0.66rem;
 }
 
+/* Per-proxy account-usage count badge. */
+.proxy-count {
+  padding: 3px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
 /* In-app confirm/prompt modal — replaces window.confirm/prompt. */
 .modal-overlay {
   position: fixed;

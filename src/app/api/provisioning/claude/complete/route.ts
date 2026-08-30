@@ -23,6 +23,8 @@ const completeSchema = z.object({
   backend: z.string().trim().max(80).optional(),
   // Selected onboarding prefix; required (and prepended to notes) when the switch is on.
   prefixId: z.string().uuid().optional(),
+  // Selected CCMax egress proxy (local bookkeeping); required when forcedProxyEnabled.
+  egressProxyId: z.string().uuid().optional(),
   groupIds: z.array(z.number().int().positive()).max(50).default([]),
 });
 
@@ -59,6 +61,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "prefix_required" }, { status: 400 });
     }
     prefixValue = prefix.value;
+  }
+
+  // Egress proxy: resolve a proxy the caller may use. Required when the toggle is
+  // on. Purely local bookkeeping — the value is never forwarded to any backend.
+  let egressProxyId: string | undefined;
+  {
+    const proxy = parsed.data.egressProxyId
+      ? context.store.egressProxies.find((item) => item.id === parsed.data.egressProxyId)
+      : undefined;
+    const usable = proxy && (context.role === "superadmin" || proxy.ownerId === context.session.userId);
+    if (context.store.settings.forcedProxyEnabled && !usable) {
+      return NextResponse.json({ error: "proxy_required" }, { status: 400 });
+    }
+    egressProxyId = usable ? proxy!.id : undefined;
   }
 
   // Platform resolution:
@@ -123,6 +139,7 @@ export async function POST(request: Request) {
         accountId: String(account.id),
         ownerId: context.session.userId,
         ownerUsername: context.session.username,
+        proxyId: egressProxyId,
         createdAt: new Date().toISOString(),
       }).catch((error) => console.error("[provisioning.complete] ownership write failed", error));
     }

@@ -37,6 +37,7 @@ type Settings = {
   allowUserCustomProxy: boolean;
   allowUserLedgerWrite: boolean;
   forcedPrefixEnabled: boolean;
+  forcedProxyEnabled: boolean;
 };
 
 type PrefixItem = {
@@ -60,6 +61,7 @@ const emptySettings: Settings = {
   allowUserCustomProxy: true,
   allowUserLedgerWrite: false,
   forcedPrefixEnabled: false,
+  forcedProxyEnabled: false,
 };
 
 /** In-app modal state — replaces window.confirm/prompt (blocked in embedded/WebView contexts). */
@@ -535,6 +537,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label={t("允许普通用户使用自建代理")} checked={settings.allowUserCustomProxy} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserCustomProxy", value)} />
           <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
           <SettingToggle label={t("启用强制前缀")} checked={settings.forcedPrefixEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedPrefixEnabled", value)} />
+          <SettingToggle label={t("上号强制选择出口代理")} checked={settings.forcedProxyEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedProxyEnabled", value)} />
         </div>
         ) : null}
 

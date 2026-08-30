@@ -46,6 +46,8 @@ export type SystemSettings = {
   allowUserLedgerWrite: boolean;
   /** When true, onboarding requires picking a prefix that is prepended to the batch note. */
   forcedPrefixEnabled: boolean;
+  /** When true, onboarding requires selecting a CCMax egress proxy (local bookkeeping). */
+  forcedProxyEnabled: boolean;
 };
 
 /**
@@ -100,6 +102,30 @@ export type PoolOwnership = {
   accountId: string;
   ownerId: string;
   ownerUsername: string;
+  /** CCMax egress proxy this account was onboarded with (local bookkeeping only). */
+  proxyId?: string;
+  createdAt: string;
+};
+
+/** VERIFIED protocol set (mirrors Sub2API's proxy enum). */
+export type EgressProxyProtocol = "http" | "https" | "socks5" | "socks5h";
+
+/**
+ * A CCMax-local egress proxy. Purely a bookkeeping/selection aid: CCMax stores
+ * the proxy and tracks how many accounts were onboarded with it — it does NOT
+ * route traffic or push the proxy to any backend. `password` is AES-encrypted.
+ */
+export type EgressProxy = {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  label: string;
+  protocol: EgressProxyProtocol;
+  host: string;
+  port: number;
+  username: string;
+  /** AES-encrypted at rest (`enc:v1:…`). */
+  password: string;
   createdAt: string;
 };
 
@@ -153,6 +179,7 @@ export type LocalAccountStore = {
   poolOwnership: PoolOwnership[];
   ledger: LedgerEntry[];
   accountPrefixes: AccountPrefix[];
+  egressProxies: EgressProxy[];
 };
 
 const defaultSettings: SystemSettings = {
@@ -170,6 +197,8 @@ const defaultSettings: SystemSettings = {
   allowUserLedgerWrite: false,
   // Off by default: turning it on immediately blocks onboarding until a prefix is chosen.
   forcedPrefixEnabled: false,
+  // Off by default: turning it on requires an egress proxy to be selected before onboarding.
+  forcedProxyEnabled: false,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -505,6 +534,79 @@ export async function deleteAccountPrefix(id: string) {
   });
 }
 
+/** All egress proxies, newest first. */
+export async function listEgressProxies(): Promise<EgressProxy[]> {
+  const store = await getAccountStore();
+  return store.egressProxies;
+}
+
+export type NewEgressProxy = {
+  label?: string;
+  protocol: EgressProxyProtocol;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+};
+
+/** Stable identity of a proxy for per-owner dedupe (ignores label/password). */
+function egressProxyKey(p: { protocol: string; host: string; port: number; username: string }) {
+  return `${p.protocol}://${p.username}@${p.host}:${p.port}`.toLowerCase();
+}
+
+/**
+ * Append egress proxies for an owner, encrypting passwords. Dedupes identical
+ * (protocol/host/port/username) entries the owner already has. Returns those
+ * actually added (so the caller can report "added N, skipped M").
+ */
+export async function addEgressProxies(ownerId: string, ownerName: string, inputs: NewEgressProxy[]) {
+  return mutateStore((store) => {
+    const seen = new Set(store.egressProxies.filter((p) => p.ownerId === ownerId).map(egressProxyKey));
+    const now = new Date().toISOString();
+    const added: EgressProxy[] = [];
+    for (const input of inputs) {
+      const proxy: EgressProxy = {
+        id: randomUUID(),
+        ownerId,
+        ownerName,
+        label: (input.label ?? "").trim(),
+        protocol: input.protocol,
+        host: input.host.trim(),
+        port: input.port,
+        username: (input.username ?? "").trim(),
+        password: input.password ? encryptSecret(input.password) : "",
+        createdAt: now,
+      };
+      const key = egressProxyKey(proxy);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      store.egressProxies.unshift(proxy);
+      added.push(proxy);
+    }
+    return added;
+  });
+}
+
+/** Delete an egress proxy by id. Returns the removed proxy, or null if not found. */
+export async function deleteEgressProxy(id: string) {
+  return mutateStore((store) => {
+    const index = store.egressProxies.findIndex((p) => p.id === id);
+    if (index < 0) return null;
+    const [proxy] = store.egressProxies.splice(index, 1);
+    return proxy;
+  });
+}
+
+/** How many onboarded accounts are bound to each egress proxy (id -> count). */
+export async function countAccountsByProxy(): Promise<Record<string, number>> {
+  const store = await getAccountStore();
+  const counts: Record<string, number> = {};
+  for (const owner of store.poolOwnership) {
+    if (owner.proxyId) counts[owner.proxyId] = (counts[owner.proxyId] ?? 0) + 1;
+  }
+  return counts;
+}
+
 /**
  * One "Claude Gateway" (vendor) instance. Unlike a generic custom gateway, this
  * one is driven by a vendor login: the adapter mints a short-lived JWT from
@@ -652,7 +754,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [], accountPrefixes: [] };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [], accountPrefixes: [], egressProxies: [] };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -664,6 +766,7 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     poolOwnership: Array.isArray(value.poolOwnership) ? value.poolOwnership : [],
     ledger: Array.isArray(value.ledger) ? value.ledger : [],
     accountPrefixes: Array.isArray(value.accountPrefixes) ? value.accountPrefixes : [],
+    egressProxies: Array.isArray(value.egressProxies) ? value.egressProxies : [],
   };
 }
 

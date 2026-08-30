@@ -73,6 +73,14 @@ export function roleCanCreateUsers(role: Role, settings: AccessContext["store"][
 }
 
 /**
+ * Egress-proxy visibility/ownership. superadmin sees and manages every proxy;
+ * an admin/user only their own. `ownerId` is the caller's id for own-scoping.
+ */
+export function egressProxyScope(context: AccessContext): { all: boolean; ownerId: string } {
+  return { all: context.role === "superadmin", ownerId: context.session.userId };
+}
+
+/**
  * Whether the viewer may select/create/test custom egress proxies in provisioning.
  * admin/superadmin always may; a regular `user` only when the superadmin toggle is on.
  */

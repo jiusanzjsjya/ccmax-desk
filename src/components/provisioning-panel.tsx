@@ -55,6 +55,9 @@ type ProxyOption = {
 
 type BackendOption = { ref: string; kind: string; label: string };
 
+/** A CCMax-local egress proxy option for the wizard (bookkeeping only). */
+type EgressProxyOption = { id: string; label: string; protocol: string; host: string; port: number; accountCount: number };
+
 const MAX_BATCH = 5;
 
 export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, canViewAccountPool }: ProvisioningPanelProps) {
@@ -87,6 +90,9 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
   const [prefixEnabled, setPrefixEnabled] = useState(false);
   const [prefixes, setPrefixes] = useState<{ id: string; value: string }[]>([]);
   const [prefixId, setPrefixId] = useState("");
+  const [proxyRequired, setProxyRequired] = useState(false);
+  const [egressProxies, setEgressProxies] = useState<EgressProxyOption[]>([]);
+  const [egressProxyId, setEgressProxyId] = useState("");
 
   const configured = adminConfigured && sub2ApiConfigured;
 
@@ -178,6 +184,31 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
         if (payload.items) setPrefixes(payload.items);
       } catch {
         // Prefix selection only gates onboarding when enabled; ignore failures.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the caller's egress proxies + whether one is mandatory before onboarding.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/provisioning/egress-proxies", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as {
+          forcedProxyEnabled?: boolean;
+          items?: EgressProxyOption[];
+        };
+        if (cancelled) return;
+        setProxyRequired(Boolean(payload.forcedProxyEnabled));
+        if (payload.items) setEgressProxies(payload.items);
+      } catch {
+        // Egress proxy only gates onboarding when the toggle is on; ignore failures.
       }
     })();
 
@@ -366,6 +397,7 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           notes: notes.trim() || undefined,
           country: country.trim() || undefined,
           ...(prefixId ? { prefixId } : {}),
+          ...(egressProxyId ? { egressProxyId } : {}),
           ...(selectedBackend ? { backend: selectedBackend } : {}),
         }),
       });
@@ -517,6 +549,10 @@ export default function ProvisioningPanel({ adminConfigured, sub2ApiConfigured, 
           prefixes={prefixes}
           prefixId={prefixId}
           setPrefixId={setPrefixId}
+          proxyRequired={proxyRequired}
+          egressProxies={egressProxies}
+          egressProxyId={egressProxyId}
+          setEgressProxyId={setEgressProxyId}
         />
       )}
 
@@ -589,6 +625,10 @@ function WizardView({
   prefixes,
   prefixId,
   setPrefixId,
+  proxyRequired,
+  egressProxies,
+  egressProxyId,
+  setEgressProxyId,
 }: {
   slots: Slot[];
   activeSlots: Slot[];
@@ -621,6 +661,10 @@ function WizardView({
   prefixes: { id: string; value: string }[];
   prefixId: string;
   setPrefixId: (value: string) => void;
+  proxyRequired: boolean;
+  egressProxies: EgressProxyOption[];
+  egressProxyId: string;
+  setEgressProxyId: (value: string) => void;
 }) {
   const { t, locale } = useI18n();
   const doneCount = slots.filter((slot) => slot.status === "done").length;
@@ -728,6 +772,31 @@ function WizardView({
               </option>
             ))}
           </select>
+          {proxyRequired || egressProxies.length ? (
+            <>
+              <label className="field-label" htmlFor="batch-egress-proxy">
+                {proxyRequired ? t("本地出口代理（必选）") : t("本地出口代理（可选）")}
+              </label>
+              <select
+                id="batch-egress-proxy"
+                className="text-input"
+                value={egressProxyId}
+                onChange={(event) => setEgressProxyId(event.target.value)}
+                disabled={loading}
+                aria-label={t("本地出口代理")}
+              >
+                <option value="">{proxyRequired ? t("请选择代理") : t("不选")}</option>
+                {egressProxies.map((proxy) => (
+                  <option key={proxy.id} value={proxy.id}>
+                    {(proxy.label || `${proxy.host}:${proxy.port}`) + t(" · {n} 个账号", { n: proxy.accountCount })}
+                  </option>
+                ))}
+              </select>
+              {proxyRequired && !egressProxies.length ? (
+                <p className="step-lead is-placeholder">{t("尚无可用代理，请先在「代理配置」中添加。")}</p>
+              ) : null}
+            </>
+          ) : null}
           {proxyAllowed ? (
             <>
               <label className="field-label" htmlFor="batch-proxy">{t("出口代理（可选）")}</label>
@@ -765,7 +834,7 @@ function WizardView({
           ) : null}
         </div>
         <div className="wizard-actions">
-          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading || platformBlocked || (prefixEnabled && !prefixId)}>
+          <button className="oauth-button" type="button" onClick={onGenerate} disabled={!configured || loading || platformBlocked || (prefixEnabled && !prefixId) || (proxyRequired && !egressProxyId)}>
             {loading ? t("正在生成...") : t("生成 {n} 个授权槽位", { n: batchCount })}
           </button>
           {activeSlots.length ? (
@@ -1199,6 +1268,9 @@ function readApiError(t: TFn, status: number, error: string | undefined, fallbac
     if (error === "user_provisioning_disabled") return t("超级管理员已暂停普通用户上号，请联系管理员。");
     if (error === "target_platform_unassigned") return t("尚未分配目标平台，暂时无法上号，请联系超级管理员分配。");
     return t("当前角色或系统开关不允许执行此操作。");
+  }
+  if (status === 400 && error === "proxy_required") {
+    return t("请先在「代理配置」中添加并选择一个出口代理。");
   }
   if (status === 410) return t("授权槽位已过期，请重新生成。");
   if (status === 503 && error === "provisioning_disabled") return t("超级管理员已暂停 Claude 上号流程。");

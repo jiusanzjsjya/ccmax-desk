@@ -5,6 +5,7 @@ import { useState } from "react";
 import AccountManagementPanel from "@/components/account-management-panel";
 import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
+import EgressProxyPanel from "@/components/egress-proxy-panel";
 import LocaleToggle from "@/components/locale-toggle";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
@@ -14,7 +15,7 @@ import ThemeToggle from "@/components/theme-toggle";
 import { useI18n } from "@/lib/i18n/context";
 import type { Role } from "@/lib/roles";
 
-type SectionId = "overview" | "provisioning" | "pool" | "backends" | "access" | "settlement" | "logs";
+type SectionId = "overview" | "provisioning" | "pool" | "proxies" | "backends" | "access" | "settlement" | "logs";
 
 type DashboardShellProps = {
   role: Role;
@@ -100,6 +101,15 @@ const NAV: NavItem[] = [
     subtitle: "按用户统计真实用量金额，记录结算与预付台账（仅记录，不接支付）",
     visible: (p) => p.settlementEnabled,
   },
+  {
+    id: "proxies",
+    index: "07",
+    label: "代理配置",
+    hint: "出口代理 · 账号统计",
+    title: "出口代理",
+    subtitle: "创建/导入出口代理，新建账号时选用；显示每个代理已绑定的账号数",
+    visible: () => true,
+  },
 ];
 
 export default function DashboardShell(props: DashboardShellProps) {
@@ -175,6 +185,7 @@ export default function DashboardShell(props: DashboardShellProps) {
             {active === "pool" && props.canViewAccountPool ? (
               <AccountPoolPanel sub2ApiConfigured={props.sub2ApiConfigured} />
             ) : null}
+            {active === "proxies" ? <EgressProxyPanel role={props.role} /> : null}
             {active === "backends" && props.role === "superadmin" ? <BackendConfigPanel /> : null}
             {active === "access" && props.role !== "user" ? (
               <AccountManagementPanel role={props.role as Exclude<Role, "user">} />
