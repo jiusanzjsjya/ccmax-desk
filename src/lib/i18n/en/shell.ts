@@ -19,9 +19,19 @@ export const shell: Record<string, string> = {
   "生成槽位 · 授权 · 入池": "Create slot · authorize · add to pool",
   "生成授权槽位、完成官方授权、提交回执入池": "Create an authorization slot, complete official OAuth, submit the receipt to the pool",
 
+  "授权上key": "Key Upload",
+  "OpenAI · API key · 入池": "OpenAI · API key · to pool",
+  "提交 OpenAI API key，直接入池到 Sub2API（无需官方授权换取）":
+    "Submit an OpenAI API key straight into the Sub2API pool (no OAuth exchange needed)",
+
   "账号池统揽": "Account pool",
   "调度 · 健康 · 掉权": "Scheduling · health · deauthorization",
   "OAuth 账号调度与健康 · 额度、并发、掉权状态": "OAuth account scheduling and health · quota, concurrency, deauthorization",
+
+  "Key 使用额度": "Key Usage",
+  "OpenAI · 用量 · 死活": "OpenAI · usage · liveness",
+  "实时显示自己 OpenAI Key 在 Sub2API 上的用量与是否死 Key":
+    "Real-time usage and dead-key status of your OpenAI keys on Sub2API",
 
   "多平台后端": "Backends",
   "目标平台与网关": "Target platforms & gateways",
@@ -56,6 +66,7 @@ export const shell: Record<string, string> = {
 
   // Quick cards
   "01 / 上号": "01 / Onboard",
+  "01 / 上key": "01 / Key",
   "选目标平台，生成授权槽位，完成官方授权后提交回执入池。":
     "Pick a target platform, create a slot, then submit the receipt after official OAuth.",
   "02 / 账号池": "02 / Pool",

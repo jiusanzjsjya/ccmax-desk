@@ -16,6 +16,9 @@ const createUserSchema = z.object({
   // Superadmin may set the new account's target platform explicitly; ignored for
   // an admin creator (their own platform is snapshotted instead).
   targetBackend: z.string().trim().max(80).nullable().optional(),
+  // Provisioning modules to grant. Superadmin grants freely; an admin may only
+  // grant a subset of their own modules. Default-deny beyond what is listed.
+  allowedModules: z.array(z.enum(["onboard", "key"])).max(2).optional(),
 });
 
 export async function GET() {
@@ -79,8 +82,23 @@ export async function POST(request: Request) {
     targetBackend = context.targetBackend;
   }
 
+  // Module grant:
+  // - superadmin: honour the requested set (default onboard-only), any module.
+  // - admin: intersect the request (or their own set) with what the admin holds,
+  //   so an admin can never grant a module they lack.
+  const requestedModules = parsed.data.allowedModules;
+  const allowedModules =
+    context.role === "superadmin"
+      ? (requestedModules ?? ["onboard"])
+      : (requestedModules ?? context.allowedModules).filter((module) => context.allowedModules.includes(module));
+
   try {
-    const account = await createLocalAccount({ ...parsed.data, createdBy: context.session.userId, targetBackend });
+    const account = await createLocalAccount({
+      ...parsed.data,
+      createdBy: context.session.userId,
+      targetBackend,
+      allowedModules,
+    });
     await addAuditEvent({
       actorId: context.session.userId,
       actorName: context.session.displayName,

@@ -810,6 +810,20 @@ a {
   resize: vertical;
 }
 
+.key-textarea {
+  min-height: 220px;
+  resize: vertical;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.key-results {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .auth-url-input {
   font-family: var(--font-code);
   font-size: 0.7rem;
@@ -1081,6 +1095,30 @@ select.text-input,
   color: var(--accent) !important;
   font-family: var(--font-code);
   font-size: 0.66rem;
+}
+
+.module-grant {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 2px;
+}
+
+.module-grant-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.module-grant-option input {
+  accent-color: var(--accent);
+}
+
+.module-grant-option span {
+  color: var(--ink) !important;
+  font-family: inherit !important;
+  font-size: 0.74rem !important;
 }
 
 .managed-user-actions {
@@ -1737,6 +1775,12 @@ select.text-input,
 
 .proxy-check.is-error {
   color: var(--ink);
+}
+
+/* Dead-key warning: on-theme (no red) — emphasized ink to read as "needs attention". */
+.proxy-check.is-warn {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .wizard-actions,

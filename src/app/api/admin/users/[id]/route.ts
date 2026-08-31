@@ -14,6 +14,8 @@ const updateUserSchema = z.object({
   disabled: z.boolean().optional(),
   // `null` unassigns the target platform; a ref must be enabled + configured.
   targetBackend: z.string().trim().max(80).nullable().optional(),
+  // Superadmin-managed provisioning module grants (授权上号 / 授权上key).
+  allowedModules: z.array(z.enum(["onboard", "key"])).max(2).optional(),
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

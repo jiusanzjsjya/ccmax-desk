@@ -1,4 +1,11 @@
-import { getAccountStore, findLocalAccountById, type AccountPrefix, type LocalAccountStore } from "@/lib/account-store";
+import {
+  getAccountStore,
+  findLocalAccountById,
+  PROVISIONING_MODULES,
+  type AccountPrefix,
+  type LocalAccountStore,
+  type ProvisioningModule,
+} from "@/lib/account-store";
 import type { BackendRef } from "@/lib/backends/kinds";
 import { getCurrentSession, type AdminSession } from "@/lib/session";
 import type { Role } from "@/lib/roles";
@@ -12,6 +19,11 @@ export type AccessContext = {
    * chooses freely) and for an admin/user with no assignment yet (blocked).
    */
   targetBackend: BackendRef | null;
+  /**
+   * Provisioning modules this caller may use. The superadmin implicitly has all
+   * of them; an admin/user has exactly what the superadmin granted.
+   */
+  allowedModules: ProvisioningModule[];
 };
 
 export async function getAccessContext(): Promise<AccessContext | null> {
@@ -19,7 +31,13 @@ export async function getAccessContext(): Promise<AccessContext | null> {
   if (!session) return null;
 
   if (session.userId === "env-superadmin") {
-    return { session, role: "superadmin", store: await getAccountStore(), targetBackend: null };
+    return {
+      session,
+      role: "superadmin",
+      store: await getAccountStore(),
+      targetBackend: null,
+      allowedModules: [...PROVISIONING_MODULES],
+    };
   }
 
   const account = await findLocalAccountById(session.userId);
@@ -36,6 +54,7 @@ export async function getAccessContext(): Promise<AccessContext | null> {
     role: account.role,
     store: await getAccountStore(),
     targetBackend: account.targetBackend ?? null,
+    allowedModules: account.allowedModules ?? [],
   };
 }
 
@@ -51,20 +70,42 @@ export function provisioningAccess(context: AccessContext) {
   return { allowed: true, status: 200, error: null } as const;
 }
 
-export function accountPoolAccess(context: AccessContext) {
+/**
+ * Whether the caller may use a given provisioning module. superadmin always may;
+ * an admin/user only when the superadmin granted it (default-deny). This is the
+ * per-module authorization gate for 授权上号 ("onboard") and 授权上key ("key").
+ */
+export function canUseModule(context: AccessContext, module: ProvisioningModule): boolean {
   if (context.role === "superadmin") return true;
-  if (context.role === "admin") return context.store.settings.allowAdminAccountPoolView;
-  return context.store.settings.allowUserAccountPoolView;
+  return context.allowedModules.includes(module);
+}
+
+/** Whether the caller may run Claude onboarding (授权上号). */
+export function canOnboard(context: AccessContext): boolean {
+  return canUseModule(context, "onboard");
+}
+
+/** Whether the caller may upload OpenAI API keys (授权上key). */
+export function canUploadKey(context: AccessContext): boolean {
+  return canUseModule(context, "key");
 }
 
 /**
- * Per-owner scoping for the account pool. Only regular users are scoped (and
- * only when the superadmin toggle is on); admin/superadmin always see the full
- * pool. When scoped, callers must restrict results to `ownerId`'s own accounts.
+ * Account-pool (账号池统揽, Claude accounts) visibility is bound to the 授权上号
+ * grant: whoever may onboard may review the pool they feed. superadmin always.
+ */
+export function accountPoolAccess(context: AccessContext) {
+  return canOnboard(context);
+}
+
+/**
+ * Per-owner scoping for the account pool. Every non-superadmin is scoped to the
+ * accounts they personally onboarded (default-deny visibility of others'), so
+ * opening the pool by the onboard grant never leaks the whole pool. superadmin
+ * sees everything. When scoped, callers restrict results to `ownerId`.
  */
 export function poolScope(context: AccessContext): { scoped: boolean; ownerId: string | null } {
-  if (context.role !== "user") return { scoped: false, ownerId: null };
-  if (!context.store.settings.scopeAccountPoolByOwner) return { scoped: false, ownerId: null };
+  if (context.role === "superadmin") return { scoped: false, ownerId: null };
   return { scoped: true, ownerId: context.session.userId };
 }
 

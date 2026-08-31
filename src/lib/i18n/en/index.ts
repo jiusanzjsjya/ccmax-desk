@@ -15,6 +15,7 @@ import { common } from "./common";
 import { shell } from "./shell";
 import { login } from "./login";
 import { provisioning } from "./provisioning";
+import { provisioningKey } from "./provisioning-key";
 import { pool } from "./pool";
 import { poolOps } from "./pool-ops";
 import { backends } from "./backends";
@@ -28,6 +29,7 @@ export const en: Record<string, string> = {
   ...shell,
   ...login,
   ...provisioning,
+  ...provisioningKey,
   ...pool,
   ...poolOps,
   ...backends,

@@ -10,6 +10,13 @@ type AccountManagementPanelProps = {
   role: Exclude<Role, "user">;
 };
 
+/** Provisioning modules the superadmin can grant per account (授权上号 / 授权上key). */
+type ModuleKey = "onboard" | "key";
+const MODULE_OPTIONS: { key: ModuleKey; label: string }[] = [
+  { key: "onboard", label: "授权上号" },
+  { key: "key", label: "授权上key" },
+];
+
 type ManagedAccount = {
   id: string;
   username: string;
@@ -21,6 +28,8 @@ type ManagedAccount = {
   lastLoginAt: string | null;
   /** Superadmin-assigned onboarding/pool platform; null = unassigned. */
   targetBackend: string | null;
+  /** Granted provisioning modules; default-deny beyond what is listed. */
+  allowedModules: ModuleKey[];
 };
 
 /** An assignable target platform (enabled + configured), from the users API. */
@@ -30,9 +39,6 @@ type Settings = {
   provisioningEnabled: boolean;
   allowAdminCreateUsers: boolean;
   allowUserProvisioning: boolean;
-  allowAdminAccountPoolView: boolean;
-  allowUserAccountPoolView: boolean;
-  scopeAccountPoolByOwner: boolean;
   settlementModuleEnabled: boolean;
   allowUserLedgerWrite: boolean;
   forcedPrefixEnabled: boolean;
@@ -53,9 +59,6 @@ const emptySettings: Settings = {
   provisioningEnabled: true,
   allowAdminCreateUsers: true,
   allowUserProvisioning: true,
-  allowAdminAccountPoolView: true,
-  allowUserAccountPoolView: false,
-  scopeAccountPoolByOwner: true,
   settlementModuleEnabled: true,
   allowUserLedgerWrite: false,
   forcedPrefixEnabled: false,
@@ -82,6 +85,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
   const [settings, setSettings] = useState<Settings>(emptySettings);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [newTargetBackend, setNewTargetBackend] = useState("");
+  const [newModules, setNewModules] = useState<ModuleKey[]>(["onboard"]);
   const [currentUserId, setCurrentUserId] = useState("");
   const [prefixes, setPrefixes] = useState<PrefixItem[]>([]);
   const [newPrefix, setNewPrefix] = useState("");
@@ -287,8 +291,9 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           displayName,
           password,
           role: newRole,
-          // Only the superadmin picks a platform; an admin's new user inherits the admin's.
-          ...(isSuperadmin ? { targetBackend: newTargetBackend || null } : {}),
+          // Only the superadmin picks a platform + modules; an admin's new user
+          // inherits the admin's platform and module grants.
+          ...(isSuperadmin ? { targetBackend: newTargetBackend || null, allowedModules: newModules } : {}),
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as { account?: ManagedAccount; message?: string; error?: string };
@@ -303,6 +308,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
       setDisplayName("");
       setPassword("");
       setNewTargetBackend("");
+      setNewModules(["onboard"]);
       setMessage(t("账号 {name} 已创建。", { name: payload.account.username }));
       if (isSuperadmin) void refresh();
     } catch {
@@ -312,7 +318,17 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function updateAccount(account: ManagedAccount, patch: { role?: "admin" | "user"; disabled?: boolean; targetBackend?: string | null }) {
+  function toggleAccountModule(account: ManagedAccount, module: ModuleKey, checked: boolean) {
+    const set = new Set(account.allowedModules ?? []);
+    if (checked) set.add(module);
+    else set.delete(module);
+    void updateAccount(account, { allowedModules: MODULE_OPTIONS.map((option) => option.key).filter((key) => set.has(key)) });
+  }
+
+  async function updateAccount(
+    account: ManagedAccount,
+    patch: { role?: "admin" | "user"; disabled?: boolean; targetBackend?: string | null; allowedModules?: ModuleKey[] },
+  ) {
     setSaving(true);
     setMessage("");
     setError("");
@@ -501,6 +517,27 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
                 ))}
               </select>
               <p className="management-help">{t("上号与账号池将锁定在此平台；管理员创建的用户会继承管理员的平台。")}</p>
+              <span className="field-label">{t("授权模块")}</span>
+              <div className="module-grant">
+                {MODULE_OPTIONS.map((option) => (
+                  <label key={option.key} className="module-grant-option">
+                    <input
+                      type="checkbox"
+                      checked={newModules.includes(option.key)}
+                      onChange={(event) =>
+                        setNewModules((current) =>
+                          event.target.checked
+                            ? MODULE_OPTIONS.map((item) => item.key).filter((key) => key === option.key || current.includes(key))
+                            : current.filter((key) => key !== option.key),
+                        )
+                      }
+                      disabled={saving}
+                    />
+                    <span>{t(option.label)}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="management-help">{t("未勾选的模块默认不可用；管理员创建的用户会继承管理员的模块。")}</p>
             </>
           ) : null}
           <label className="field-label" htmlFor="new-account-password">{t("初始密码")}</label>
@@ -528,9 +565,6 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label={t("允许 Claude 上号流程")} checked={settings.provisioningEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("provisioningEnabled", value)} />
           <SettingToggle label={t("允许管理员创建普通用户")} checked={settings.allowAdminCreateUsers} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminCreateUsers", value)} />
           <SettingToggle label={t("允许普通用户上号")} checked={settings.allowUserProvisioning} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserProvisioning", value)} />
-          <SettingToggle label={t("管理员查看账号池")} checked={settings.allowAdminAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowAdminAccountPoolView", value)} />
-          <SettingToggle label={t("普通用户查看账号池")} checked={settings.allowUserAccountPoolView} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserAccountPoolView", value)} />
-          <SettingToggle label={t("普通用户仅见本人上号的账号")} checked={settings.scopeAccountPoolByOwner} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("scopeAccountPoolByOwner", value)} />
           <SettingToggle label={t("启用数据分析结算模块")} checked={settings.settlementModuleEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("settlementModuleEnabled", value)} />
           <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
           <SettingToggle label={t("启用强制前缀")} checked={settings.forcedPrefixEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedPrefixEnabled", value)} />
@@ -617,6 +651,22 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
                   <span className="managed-user-platform">
                     {t("目标平台")}：{account.targetBackend ? platformLabel(account.targetBackend, platforms) : t("未分配")}
                   </span>
+                  {isSuperadmin ? (
+                    <div className="module-grant">
+                      {MODULE_OPTIONS.map((option) => (
+                        <label key={option.key} className="module-grant-option">
+                          <input
+                            type="checkbox"
+                            checked={(account.allowedModules ?? []).includes(option.key)}
+                            onChange={(event) => toggleAccountModule(account, option.key, event.target.checked)}
+                            disabled={saving}
+                            aria-label={t("{name} {module}", { name: account.username, module: t(option.label) })}
+                          />
+                          <span>{t(option.label)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="managed-user-actions">
                   {isSuperadmin ? (

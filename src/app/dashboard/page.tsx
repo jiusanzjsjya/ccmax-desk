@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import DashboardShell from "@/components/dashboard-shell";
-import { accountPoolAccess, getAccessContext } from "@/lib/access";
+import { accountPoolAccess, canOnboard, canUploadKey, getAccessContext } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { env } from "@/lib/env";
 import { roleLabel } from "@/lib/roles";
@@ -26,6 +26,8 @@ export default async function DashboardPage() {
       sub2ApiConfigured={sub2Ready}
       superadminConfigured={env.isSuperadminConfigured}
       settlementEnabled={context.store.settings.settlementModuleEnabled}
+      canOnboard={canOnboard(context)}
+      canUploadKey={canUploadKey(context)}
     />
   );
 }

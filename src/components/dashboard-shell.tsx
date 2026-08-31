@@ -7,6 +7,8 @@ import AccountPoolPanel from "@/components/account-pool-panel";
 import BackendConfigPanel from "@/components/backend-config-panel";
 import EgressProxyPanel from "@/components/egress-proxy-panel";
 import LocaleToggle from "@/components/locale-toggle";
+import KeyProvisioningPanel from "@/components/key-provisioning-panel";
+import KeyUsagePanel from "@/components/key-usage-panel";
 import LogoutButton from "@/components/logout-button";
 import ProvisioningPanel from "@/components/provisioning-panel";
 import SettlementPanel from "@/components/settlement-panel";
@@ -15,7 +17,17 @@ import ThemeToggle from "@/components/theme-toggle";
 import { useI18n } from "@/lib/i18n/context";
 import type { Role } from "@/lib/roles";
 
-type SectionId = "overview" | "provisioning" | "pool" | "proxies" | "backends" | "access" | "settlement" | "logs";
+type SectionId =
+  | "overview"
+  | "provisioning"
+  | "key-provisioning"
+  | "pool"
+  | "key-usage"
+  | "proxies"
+  | "backends"
+  | "access"
+  | "settlement"
+  | "logs";
 
 type DashboardShellProps = {
   role: Role;
@@ -25,6 +37,10 @@ type DashboardShellProps = {
   sub2ApiConfigured: boolean;
   superadminConfigured: boolean;
   settlementEnabled: boolean;
+  /** 授权上号 module grant — gates the provisioning nav + panel. */
+  canOnboard: boolean;
+  /** 授权上key module grant — gates the key-provisioning nav + panel. */
+  canUploadKey: boolean;
 };
 
 type NavItem = {
@@ -54,11 +70,20 @@ const NAV: NavItem[] = [
     hint: "生成槽位 · 授权 · 入池",
     title: "授权上号",
     subtitle: "生成授权槽位、完成官方授权、提交回执入池",
-    visible: () => true,
+    visible: (p) => p.canOnboard,
+  },
+  {
+    id: "key-provisioning",
+    index: "02",
+    label: "授权上key",
+    hint: "OpenAI · API key · 入池",
+    title: "授权上key",
+    subtitle: "提交 OpenAI API key，直接入池到 Sub2API（无需官方授权换取）",
+    visible: (p) => p.canUploadKey,
   },
   {
     id: "pool",
-    index: "02",
+    index: "03",
     label: "账号池统揽",
     hint: "调度 · 健康 · 掉权",
     title: "账号池统揽",
@@ -66,8 +91,17 @@ const NAV: NavItem[] = [
     visible: (p) => p.canViewAccountPool,
   },
   {
+    id: "key-usage",
+    index: "04",
+    label: "Key 使用额度",
+    hint: "OpenAI · 用量 · 死活",
+    title: "Key 使用额度",
+    subtitle: "实时显示自己 OpenAI Key 在 Sub2API 上的用量与是否死 Key",
+    visible: (p) => p.canUploadKey,
+  },
+  {
     id: "backends",
-    index: "03",
+    index: "05",
     label: "多平台后端",
     hint: "目标平台与网关",
     title: "多平台后端",
@@ -76,7 +110,7 @@ const NAV: NavItem[] = [
   },
   {
     id: "access",
-    index: "04",
+    index: "06",
     label: "账号与权限",
     hint: "账号 · 系统开关",
     title: "账号与权限",
@@ -85,7 +119,7 @@ const NAV: NavItem[] = [
   },
   {
     id: "logs",
-    index: "05",
+    index: "07",
     label: "系统日志",
     hint: "操作审计 · 留痕",
     title: "系统日志",
@@ -94,7 +128,7 @@ const NAV: NavItem[] = [
   },
   {
     id: "settlement",
-    index: "06",
+    index: "08",
     label: "数据分析",
     hint: "用量金额 · 结算台账",
     title: "数据分析 · 预付结款",
@@ -103,7 +137,7 @@ const NAV: NavItem[] = [
   },
   {
     id: "proxies",
-    index: "07",
+    index: "09",
     label: "代理配置",
     hint: "出口代理 · 账号统计",
     title: "出口代理",
@@ -175,15 +209,21 @@ export default function DashboardShell(props: DashboardShellProps) {
         <main className="view">
           <div className="view-inner">
             {active === "overview" ? <Overview {...props} onJump={setActive} /> : null}
-            {active === "provisioning" ? (
+            {active === "provisioning" && props.canOnboard ? (
               <ProvisioningPanel
                 adminConfigured={props.superadminConfigured}
                 sub2ApiConfigured={props.sub2ApiConfigured}
                 canViewAccountPool={props.canViewAccountPool}
               />
             ) : null}
+            {active === "key-provisioning" && props.canUploadKey ? (
+              <KeyProvisioningPanel sub2ApiConfigured={props.sub2ApiConfigured} />
+            ) : null}
             {active === "pool" && props.canViewAccountPool ? (
               <AccountPoolPanel sub2ApiConfigured={props.sub2ApiConfigured} />
+            ) : null}
+            {active === "key-usage" && props.canUploadKey ? (
+              <KeyUsagePanel sub2ApiConfigured={props.sub2ApiConfigured} />
             ) : null}
             {active === "proxies" ? <EgressProxyPanel role={props.role} /> : null}
             {active === "backends" && props.role === "superadmin" ? <BackendConfigPanel /> : null}
@@ -260,11 +300,20 @@ function Overview(props: DashboardShellProps & { onJump: (id: SectionId) => void
       </div>
 
       <div className="quick-grid">
-        <button type="button" className="quick-card" onClick={() => onJump("provisioning")}>
-          <span className="qk">{t("01 / 上号")}</span>
-          <strong>{t("授权上号")}</strong>
-          <span>{t("选目标平台，生成授权槽位，完成官方授权后提交回执入池。")}</span>
-        </button>
+        {props.canOnboard ? (
+          <button type="button" className="quick-card" onClick={() => onJump("provisioning")}>
+            <span className="qk">{t("01 / 上号")}</span>
+            <strong>{t("授权上号")}</strong>
+            <span>{t("选目标平台，生成授权槽位，完成官方授权后提交回执入池。")}</span>
+          </button>
+        ) : null}
+        {props.canUploadKey ? (
+          <button type="button" className="quick-card" onClick={() => onJump("key-provisioning")}>
+            <span className="qk">{t("01 / 上key")}</span>
+            <strong>{t("授权上key")}</strong>
+            <span>{t("提交 OpenAI API key，直接入池到 Sub2API（无需官方授权换取）")}</span>
+          </button>
+        ) : null}
         {props.canViewAccountPool ? (
           <button type="button" className="quick-card" onClick={() => onJump("pool")}>
             <span className="qk">{t("02 / 账号池")}</span>

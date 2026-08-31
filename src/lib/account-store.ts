@@ -7,6 +7,17 @@ import type { Role } from "@/lib/roles";
 import { ccgatewayIdFromRef, ccgatewayRef, customIdFromRef, customRef, refKind, type BackendRef } from "@/lib/backends/kinds";
 import { encryptSecret } from "@/lib/secret-box";
 
+/**
+ * Provisioning modules a non-superadmin account may be granted. Each is an
+ * independent authorization, controlled by the superadmin:
+ * - "onboard": 授权上号 — Claude OAuth onboarding (the original flow).
+ * - "key":     授权上key — upload an OpenAI upstream account by API key.
+ * A module absent from an account's `allowedModules` is denied (no upload, and
+ * its nav entry is hidden). The superadmin implicitly has every module.
+ */
+export type ProvisioningModule = "onboard" | "key";
+export const PROVISIONING_MODULES: ProvisioningModule[] = ["onboard", "key"];
+
 export type LocalAccount = {
   id: string;
   username: string;
@@ -18,6 +29,12 @@ export type LocalAccount = {
    * superadmin assigns one. Admin-created users snapshot their admin's value.
    */
   targetBackend: BackendRef | null;
+  /**
+   * Provisioning modules this account is authorized to use. Default-deny: a
+   * module not listed here is blocked. Existing accounts are grandfathered into
+   * `["onboard"]` by {@link normalizeAccount}; "key" is always opt-in.
+   */
+  allowedModules: ProvisioningModule[];
   passwordHash: string;
   disabled: boolean;
   createdAt: string;
@@ -32,10 +49,6 @@ export type SystemSettings = {
   provisioningEnabled: boolean;
   allowAdminCreateUsers: boolean;
   allowUserProvisioning: boolean;
-  allowAdminAccountPoolView: boolean;
-  allowUserAccountPoolView: boolean;
-  /** When true, a `user` only sees accounts they personally onboarded. */
-  scopeAccountPoolByOwner: boolean;
   /** Master switch for the data-analysis / settlement-ledger module. */
   settlementModuleEnabled: boolean;
   /** When true, a `user` may choose the target platform; otherwise they are locked to the default backend. */
@@ -184,9 +197,6 @@ const defaultSettings: SystemSettings = {
   provisioningEnabled: true,
   allowAdminCreateUsers: true,
   allowUserProvisioning: true,
-  allowAdminAccountPoolView: true,
-  allowUserAccountPoolView: false,
-  scopeAccountPoolByOwner: true,
   settlementModuleEnabled: true,
   // Regular users may pick the target platform by default; superadmin can revoke it.
   // Ledger writing stays off until explicitly granted.
@@ -314,6 +324,7 @@ export async function createLocalAccount(input: {
   role: Exclude<Role, "superadmin">;
   createdBy: string;
   targetBackend?: BackendRef | null;
+  allowedModules?: ProvisioningModule[];
 }) {
   return mutateStore((store) => {
     const username = normalizeUsername(input.username);
@@ -328,6 +339,7 @@ export async function createLocalAccount(input: {
       displayName: input.displayName.trim() || username,
       role: input.role,
       targetBackend: input.targetBackend ?? null,
+      allowedModules: sanitizeModules(input.allowedModules ?? ["onboard"]),
       passwordHash: hashPassword(input.password),
       disabled: false,
       createdAt: now,
@@ -378,7 +390,13 @@ export async function markAccountLogin(accountId: string) {
 
 export async function updateLocalAccount(
   accountId: string,
-  input: { role?: Exclude<Role, "superadmin">; disabled?: boolean; displayName?: string; targetBackend?: BackendRef | null },
+  input: {
+    role?: Exclude<Role, "superadmin">;
+    disabled?: boolean;
+    displayName?: string;
+    targetBackend?: BackendRef | null;
+    allowedModules?: ProvisioningModule[];
+  },
 ) {
   return mutateStore((store) => {
     const account = store.accounts.find((item) => item.id === accountId);
@@ -391,6 +409,7 @@ export async function updateLocalAccount(
     }
     // `null` unassigns; `undefined` leaves it untouched.
     if (input.targetBackend !== undefined) account.targetBackend = input.targetBackend;
+    if (input.allowedModules !== undefined) account.allowedModules = sanitizeModules(input.allowedModules);
     account.updatedAt = new Date().toISOString();
     return account;
   });
@@ -768,8 +787,19 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
 }
 
 /** Backfill fields added after a store was first written (legacy accounts). */
+/** Keep only known modules, deduped and in canonical order. */
+function sanitizeModules(modules: readonly ProvisioningModule[] | undefined): ProvisioningModule[] {
+  const set = new Set(modules ?? []);
+  return PROVISIONING_MODULES.filter((module) => set.has(module));
+}
+
 function normalizeAccount(account: LocalAccount): LocalAccount {
-  return { ...account, targetBackend: account.targetBackend ?? null };
+  return {
+    ...account,
+    targetBackend: account.targetBackend ?? null,
+    // Grandfather pre-module accounts into onboarding; "key" stays opt-in.
+    allowedModules: account.allowedModules ? sanitizeModules(account.allowedModules) : ["onboard"],
+  };
 }
 
 /** Persisted shape may predate `customs` (single `custom`) — accept both. */

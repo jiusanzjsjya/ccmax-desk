@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { canUseCustomProxy, getAccessContext, provisioningAccess } from "@/lib/access";
+import { canOnboard, canUseCustomProxy, getAccessContext, provisioningAccess } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveOAuthBroker } from "@/lib/backends/registry";
 import {
@@ -29,6 +29,11 @@ export async function POST(request: Request) {
   const access = provisioningAccess(context);
   if (!access.allowed) {
     return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
+  // 授权上号 module gate: default-deny unless the superadmin granted "onboard".
+  if (!canOnboard(context)) {
+    return NextResponse.json({ error: "module_forbidden" }, { status: 403 });
   }
 
   if (!(await isSub2ApiConfigured())) {

@@ -245,6 +245,80 @@ export async function createClaudeAccount(input: {
   return summarizeAccount(response);
 }
 
+/**
+ * Upload an OpenAI upstream account authenticated by a static API key.
+ *
+ * VERIFIED against Sub2API source (Wei-Shaw/sub2api, backend/internal/handler/admin/
+ * account_handler.go → CreateAccountRequest). Same endpoint as Claude onboarding —
+ * `POST /api/v1/admin/accounts` — but a different credential shape:
+ *   - platform: "openai"  (free-form string field; examples: claude/openai/gemini)
+ *   - type:     "apikey"  (server enum: oneof=oauth setup-token apikey upstream bedrock service_account)
+ *   - credentials: { api_key, base_url?, model_mapping? }  (jsonb; keys read by
+ *     SyncUpstreamModelsPreview — api_key required, base_url/model_mapping optional)
+ * Shared tuning fields (name required; notes/group_ids/concurrency/priority/
+ * rate_multiplier/proxy_id/auto_pause_on_expired) mirror createClaudeAccount.
+ * There is NO token exchange step: the caller supplies the key directly.
+ */
+export async function createOpenAIApiKeyAccount(input: {
+  name: string;
+  apiKey: string;
+  baseUrl?: string;
+  notes?: string;
+  groupIds?: number[];
+  proxyId?: number;
+  concurrency?: number;
+  priority?: number;
+  rateMultiplier?: number;
+  modelMapping?: Record<string, string>;
+}) {
+  const config = await getSub2ApiConfig();
+  const proxyId = input.proxyId ?? config.proxyId;
+  const response = await request<RawSub2ApiAccount>(config, "/api/v1/admin/accounts", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      notes: input.notes || undefined,
+      platform: "openai",
+      type: "apikey",
+      credentials: {
+        api_key: input.apiKey,
+        ...(input.baseUrl ? { base_url: input.baseUrl } : {}),
+        ...(input.modelMapping ? { model_mapping: input.modelMapping } : {}),
+      },
+      ...(proxyId ? { proxy_id: proxyId } : {}),
+      group_ids: input.groupIds ?? [],
+      concurrency: input.concurrency ?? 3,
+      priority: input.priority ?? 50,
+      rate_multiplier: input.rateMultiplier ?? 1,
+      auto_pause_on_expired: true,
+    }),
+  });
+
+  return summarizeAccount(response);
+}
+
+/**
+ * Count existing OpenAI api-key accounts whose name matches `prefix` (a `search`
+ * substring). Used to continue the daily upload sequence (账号名-日期-NN) instead
+ * of restarting at 01 each batch. Returns the server-reported `total`.
+ */
+export async function countOpenAIAccountsByPrefix(prefix: string): Promise<number> {
+  const config = await getSub2ApiConfig();
+  const query = new URLSearchParams({
+    page: "1",
+    page_size: "1",
+    platform: "openai",
+    type: "apikey",
+    search: prefix,
+    lite: "true",
+  });
+  const result = await request<RawSub2ApiAccountList | RawSub2ApiAccount[]>(config, `/api/v1/admin/accounts?${query}`, {
+    method: "GET",
+  });
+  if (Array.isArray(result)) return result.length;
+  return typeof result.total === "number" ? result.total : (result.items || result.accounts || []).length;
+}
+
 export async function listClaudeAccounts() {
   const config = await getSub2ApiConfig();
   const query = new URLSearchParams({
@@ -382,6 +456,8 @@ export type PoolAccountQuery = {
   status?: string;
   sortBy?: string;
   sortOrder?: string;
+  /** Upstream platform to list. Defaults to "anthropic" (the Claude pool). */
+  platform?: string;
 };
 
 /** Rich Sub2API account list for the pool-review dashboard (no `lite`). */
@@ -390,7 +466,7 @@ export async function listPoolAccounts(params: PoolAccountQuery): Promise<{ item
   const query = new URLSearchParams({
     page: String(params.page ?? 1),
     page_size: String(params.pageSize ?? 20),
-    platform: "anthropic",
+    platform: params.platform || "anthropic",
     sort_by: params.sortBy || "created_at",
     sort_order: params.sortOrder === "asc" ? "asc" : "desc",
   });
