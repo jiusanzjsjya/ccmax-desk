@@ -145,9 +145,11 @@ function sub2Error(error: unknown) {
 function uploadErrorMessage(error: unknown): string {
   if (error instanceof Sub2ApiError) {
     const status = error.status;
-    const label = statusLabel(status);
     const detail = cleanMessage(error.message);
-    const head = status ? `[${status}] ${label}` : label;
+    // No HTTP status (e.g. gateway login rejected, connect failure): the message
+    // already explains itself — show it directly, no "上传失败：" prefix.
+    if (!status) return detail || "连接失败或服务不可达";
+    const head = `[${status}] ${statusLabel(status)}`;
     return detail && !isGenericDetail(detail) ? `${head}：${detail}` : head;
   }
   return "连接失败或服务不可达";

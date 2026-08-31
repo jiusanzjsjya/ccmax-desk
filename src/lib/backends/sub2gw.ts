@@ -90,13 +90,32 @@ async function authenticate(config: Sub2Gw, baseUrl: string): Promise<string> {
 
   const token = body?.access_token;
   if (typeof token !== "string" || !token) {
-    throw new Sub2ApiError("Sub2API 网关登录未返回 access_token");
+    // Login returned 2xx but no token — surface the site's actual reason so the
+    // operator can tell wrong-credentials from captcha/2FA/wrong-URL.
+    const detail = readLoginDetail(raw);
+    throw new Sub2ApiError(
+      detail
+        ? `目标平台登录失败：${detail}`
+        : "目标平台登录失败：未返回 access_token。请检查网关地址、管理员邮箱/密码，或该站点登录是否需要验证码(Turnstile/腾讯验证码)或两步验证(2FA)。",
+    );
   }
 
   const expiresIn = typeof body?.expires_in === "number" ? body.expires_in : null;
   const expiresAtMs = expiresIn ? Date.now() + expiresIn * 1000 : jwtExpiryMs(token);
   authCache.set(config.id, { token, expiresAtMs });
   return token;
+}
+
+/** Best-effort human reason from a failed-login body (`message`/`error`, top or under `data`). */
+function readLoginDetail(raw: Record<string, unknown> | null): string {
+  if (!raw) return "";
+  const direct = raw.message ?? raw.error ?? raw.msg;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (raw.data && typeof raw.data === "object") {
+    const nested = (raw.data as Record<string, unknown>).message;
+    if (typeof nested === "string" && nested.trim()) return nested.trim();
+  }
+  return "";
 }
 
 /** Auth payload may be at the top level or under a `{ data }` envelope. */
