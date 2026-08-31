@@ -6,7 +6,7 @@ import { mapSub2ApiError, Sub2ApiError, testProxy } from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
 
-/** Test a Sub2API proxy by id (POST /admin/proxies/:id/test). Admin / superadmin only. */
+/** Test a Sub2API proxy by id (POST /admin/proxies/:id/test). Superadmin only. */
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const context = await getAccessContext();
 

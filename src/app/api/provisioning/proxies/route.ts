@@ -17,7 +17,7 @@ const createProxySchema = z.object({
   password: z.string().max(200).optional(),
 });
 
-/** List Sub2API proxies for the wizard's proxy selector (admin / superadmin only). */
+/** List Sub2API proxies for the wizard's proxy selector (superadmin only). */
 export async function GET() {
   const context = await getAccessContext();
 
@@ -30,7 +30,7 @@ export async function GET() {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  // Custom-proxy access: admin/superadmin always; a regular user only when the toggle is on.
+  // Sub2API proxy access is superadmin-only; admin/user fall back to local egress proxies.
   if (!canUseCustomProxy(context)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
@@ -51,7 +51,7 @@ export async function GET() {
 }
 
 /**
- * Create a custom egress proxy in Sub2API (admin / superadmin only). Sub2API has
+ * Create a custom egress proxy in Sub2API (superadmin only). Sub2API has
  * no inline proxy on the OAuth endpoints, so a custom proxy is stored here first,
  * then selected by id in the wizard. Returns the created proxy (never its password).
  */

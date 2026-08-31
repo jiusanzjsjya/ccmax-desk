@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAccessContext, provisioningAccess } from "@/lib/access";
+import { canUseCustomProxy, getAccessContext, provisioningAccess } from "@/lib/access";
 import { isSub2ApiConfigured } from "@/lib/backend-config";
 import { resolveOAuthBroker } from "@/lib/backends/registry";
 import {
@@ -38,6 +38,12 @@ export async function POST(request: Request) {
   const parsed = startSchema.safeParse((await request.json().catch(() => null)) ?? {});
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // A Sub2API proxy is superadmin-only; admin/user route through local egress proxies
+  // instead, so reject a proxyId from anyone who can't use custom proxies.
+  if (parsed.data.proxyId !== undefined && !canUseCustomProxy(context)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const owned = countOwnerFlows(context.session.sessionId);

@@ -81,12 +81,12 @@ export function egressProxyScope(context: AccessContext): { all: boolean; ownerI
 }
 
 /**
- * Whether the viewer may select/create/test custom egress proxies in provisioning.
- * admin/superadmin always may; a regular `user` only when the superadmin toggle is on.
+ * Whether the viewer may select/create/test Sub2API egress proxies in provisioning.
+ * Only the superadmin may — admin and user are restricted to their own local egress
+ * proxies (see {@link egressProxyScope}) and never see the Sub2API proxy selector.
  */
 export function canUseCustomProxy(context: AccessContext): boolean {
-  if (context.role !== "user") return true;
-  return context.store.settings.allowUserCustomProxy;
+  return context.role === "superadmin";
 }
 
 /**

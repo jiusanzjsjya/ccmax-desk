@@ -38,8 +38,6 @@ export type SystemSettings = {
   scopeAccountPoolByOwner: boolean;
   /** Master switch for the data-analysis / settlement-ledger module. */
   settlementModuleEnabled: boolean;
-  /** When true, a `user` may select/create/test custom egress proxies while onboarding. */
-  allowUserCustomProxy: boolean;
   /** When true, a `user` may choose the target platform; otherwise they are locked to the default backend. */
   allowUserSelectBackend: boolean;
   /** When true, a `user` may record their own settlement/prepay ledger entries. */
@@ -190,9 +188,8 @@ const defaultSettings: SystemSettings = {
   allowUserAccountPoolView: false,
   scopeAccountPoolByOwner: true,
   settlementModuleEnabled: true,
-  // Regular users may bring their own egress proxy and pick the target platform by default;
-  // superadmin can revoke either. Ledger writing stays off until explicitly granted.
-  allowUserCustomProxy: true,
+  // Regular users may pick the target platform by default; superadmin can revoke it.
+  // Ledger writing stays off until explicitly granted.
   allowUserSelectBackend: true,
   allowUserLedgerWrite: false,
   // Off by default: turning it on immediately blocks onboarding until a prefix is chosen.
