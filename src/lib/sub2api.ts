@@ -333,6 +333,27 @@ export async function countOpenAIAccountsByPrefix(prefix: string, cfg?: Sub2ApiR
   return typeof result.total === "number" ? result.total : (result.items || result.accounts || []).length;
 }
 
+/**
+ * Disable an account: set status=inactive AND schedulable=false. Both endpoints
+ * are VERIFIED against Sub2API source (account_handler.go): PUT /api/v1/admin/
+ * accounts/:id ({status}) and POST /api/v1/admin/accounts/:id/schedulable
+ * ({schedulable}). The schedulable leg is best-effort — status=inactive alone
+ * already stops the account from serving.
+ */
+export async function disableAccount(id: number | string, cfg?: Sub2ApiRequestConfig): Promise<void> {
+  const config = cfg ?? (await getSub2ApiConfig());
+  await request(config, `/api/v1/admin/accounts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ status: "inactive" }),
+  });
+  await request(config, `/api/v1/admin/accounts/${id}/schedulable`, {
+    method: "POST",
+    body: JSON.stringify({ schedulable: false }),
+  }).catch((error) => {
+    console.error("[sub2api.disableAccount] schedulable leg failed", error instanceof Error ? error.message : error);
+  });
+}
+
 export async function listClaudeAccounts(cfg?: Sub2ApiRequestConfig) {
   const config = cfg ?? (await getSub2ApiConfig());
   const query = new URLSearchParams({

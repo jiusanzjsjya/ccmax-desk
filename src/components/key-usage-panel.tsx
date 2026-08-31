@@ -14,6 +14,7 @@ type UsageItem = {
   name: string | null;
   alive: boolean;
   deadReason: string | null;
+  disabledByMonitor?: boolean;
   todayCost: number;
   todayRequests: number;
   monthCost: number | null;
@@ -128,6 +129,7 @@ export default function KeyUsagePanel({ sub2ApiConfigured }: KeyUsagePanelProps)
                   <span className={`account-status ${item.alive ? "is-alive" : "is-dead"}`}>
                     {item.alive ? t("存活") : t("死 Key")}
                   </span>
+                  {item.disabledByMonitor ? <span>{t("监控已禁用")}</span> : null}
                   {!item.alive && item.deadReason ? <span>{item.deadReason}</span> : null}
                 </div>
               </article>

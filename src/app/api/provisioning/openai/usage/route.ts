@@ -59,6 +59,11 @@ export async function GET() {
     const ids = accounts.map((account) => Number(account.id)).filter((id) => Number.isFinite(id) && id > 0);
     const usageById: Record<string, PoolUsage> = ids.length ? await fetchPoolUsage(ids, config).catch(() => ({})) : {};
 
+    // Keys the built-in monitor auto-disabled (on this platform), for a UI tag.
+    const monitorDisabled = new Set(
+      context.store.keyHealthStates.filter((state) => state.platform === ref && state.disabledByMonitor).map((state) => state.accountId),
+    );
+
     const items = accounts.map((account) => {
       const alive = account.status === "active" && account.schedulable !== false && !account.errorMessage;
       const usage = usageById[String(account.id)] ?? null;
@@ -67,6 +72,7 @@ export async function GET() {
         name: account.name,
         alive,
         deadReason: alive ? null : account.errorMessage || account.status || "unschedulable",
+        disabledByMonitor: account.id != null && monitorDisabled.has(String(account.id)),
         todayCost: usage?.today?.cost ?? 0,
         todayRequests: usage?.today?.requests ?? 0,
         monthCost: usage?.thirtyDay?.cost ?? null,

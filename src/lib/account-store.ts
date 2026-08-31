@@ -59,6 +59,12 @@ export type SystemSettings = {
   forcedPrefixEnabled: boolean;
   /** When true, onboarding requires selecting a CCMax egress proxy (local bookkeeping). */
   forcedProxyEnabled: boolean;
+  /** Master switch for the built-in OpenAI-key monitor (auto-disables dead/erroring keys). */
+  openaiKeyMonitorEnabled: boolean;
+  /** How often the monitor scans, in minutes. */
+  openaiKeyMonitorIntervalMinutes: number;
+  /** Consecutive unhealthy scans before a key is auto-disabled (1 = immediate). */
+  openaiKeyMonitorThreshold: number;
 };
 
 /**
@@ -183,6 +189,19 @@ export type BackendConfigStore = {
   sub2gws: Sub2Gw[];
 };
 
+/**
+ * Per-key health tracking for the OpenAI-key monitor. Keyed by (platform ref,
+ * accountId). `consecutiveErrors` counts unhealthy scans in a row (reset to 0 on
+ * a healthy scan); `disabledByMonitor` marks a key the monitor auto-disabled.
+ */
+export type KeyHealthState = {
+  platform: BackendRef;
+  accountId: string;
+  consecutiveErrors: number;
+  disabledByMonitor: boolean;
+  lastCheckedAt: string;
+};
+
 export type LocalAccountStore = {
   accounts: LocalAccount[];
   settings: SystemSettings;
@@ -192,6 +211,7 @@ export type LocalAccountStore = {
   ledger: LedgerEntry[];
   accountPrefixes: AccountPrefix[];
   egressProxies: EgressProxy[];
+  keyHealthStates: KeyHealthState[];
 };
 
 const defaultSettings: SystemSettings = {
@@ -207,6 +227,10 @@ const defaultSettings: SystemSettings = {
   forcedPrefixEnabled: false,
   // Off by default: turning it on requires an egress proxy to be selected before onboarding.
   forcedProxyEnabled: false,
+  // Off by default: auto-disabling keys is consequential, so the superadmin opts in.
+  openaiKeyMonitorEnabled: false,
+  openaiKeyMonitorIntervalMinutes: 5,
+  openaiKeyMonitorThreshold: 1,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -451,6 +475,65 @@ export async function updateSystemSettings(patch: Partial<SystemSettings>) {
   return mutateStore((store) => {
     store.settings = { ...store.settings, ...patch };
     return store.settings;
+  });
+}
+
+/**
+ * Fold one monitor scan's observations into the per-key health counters and
+ * return the accountIds that just crossed the disable threshold (and are not yet
+ * monitor-disabled). Healthy scans reset a key's streak; zeroed, non-disabled
+ * entries are pruned so the store stays small.
+ */
+export async function reconcileKeyHealth(
+  platform: BackendRef,
+  observations: Array<{ accountId: string; healthy: boolean }>,
+  threshold: number,
+): Promise<string[]> {
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const toDisable: string[] = [];
+    const byId = new Map(
+      store.keyHealthStates.filter((state) => state.platform === platform).map((state) => [state.accountId, state] as const),
+    );
+
+    for (const obs of observations) {
+      const existing = byId.get(obs.accountId);
+      if (obs.healthy) {
+        if (existing) {
+          existing.consecutiveErrors = 0;
+          existing.lastCheckedAt = now;
+        }
+        continue;
+      }
+      const state =
+        existing ??
+        (() => {
+          const created: KeyHealthState = { platform, accountId: obs.accountId, consecutiveErrors: 0, disabledByMonitor: false, lastCheckedAt: now };
+          store.keyHealthStates.push(created);
+          byId.set(obs.accountId, created);
+          return created;
+        })();
+      state.consecutiveErrors += 1;
+      state.lastCheckedAt = now;
+      if (!state.disabledByMonitor && state.consecutiveErrors >= Math.max(1, threshold)) {
+        toDisable.push(obs.accountId);
+      }
+    }
+
+    store.keyHealthStates = store.keyHealthStates.filter((state) => state.consecutiveErrors > 0 || state.disabledByMonitor);
+    return toDisable;
+  });
+}
+
+/** Mark keys as auto-disabled by the monitor (after the Sub2API disable succeeds). */
+export async function markKeysDisabledByMonitor(platform: BackendRef, accountIds: string[]) {
+  if (!accountIds.length) return;
+  return mutateStore((store) => {
+    const set = new Set(accountIds);
+    for (const state of store.keyHealthStates) {
+      if (state.platform === platform && set.has(state.accountId)) state.disabledByMonitor = true;
+    }
+    return null;
   });
 }
 
@@ -825,7 +908,7 @@ function getStorePath() {
 }
 
 function emptyStore(): LocalAccountStore {
-  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [], accountPrefixes: [], egressProxies: [] };
+  return { accounts: [], settings: { ...defaultSettings }, audit: [], backends: defaultBackendConfig(), poolOwnership: [], ledger: [], accountPrefixes: [], egressProxies: [], keyHealthStates: [] };
 }
 
 function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
@@ -838,6 +921,7 @@ function normalizeStore(value: Partial<LocalAccountStore>): LocalAccountStore {
     ledger: Array.isArray(value.ledger) ? value.ledger : [],
     accountPrefixes: Array.isArray(value.accountPrefixes) ? value.accountPrefixes : [],
     egressProxies: Array.isArray(value.egressProxies) ? value.egressProxies : [],
+    keyHealthStates: Array.isArray(value.keyHealthStates) ? value.keyHealthStates : [],
   };
 }
 

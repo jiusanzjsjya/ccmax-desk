@@ -33,6 +33,7 @@ export const provisioningKey: Record<string, string> = {
   "暂无 OpenAI Key。到「授权上key」上传后，这里会实时显示用量与死活状态。":
     "No OpenAI keys yet. After uploading via Key Upload, usage and liveness show here in real time.",
   "读取 Key 使用额度失败。": "Failed to read key usage.",
+  "监控已禁用": "Auto-disabled",
 
   // Account-management module grants
   "授权模块": "Modules",

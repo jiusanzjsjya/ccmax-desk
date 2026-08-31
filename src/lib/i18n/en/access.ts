@@ -1,5 +1,11 @@
 /** English strings for the access area. Populated during component conversion. */
 export const access: Record<string, string> = {
+  // OpenAI key monitor
+  "启用 OpenAI Key 监控（自动禁用死/报错 Key）": "Enable OpenAI-key monitor (auto-disable dead/erroring keys)",
+  "监控巡检周期（分钟）": "Monitor scan interval (minutes)",
+  "连续异常禁用阈值（次，1=立即）": "Consecutive-error threshold to disable (1 = immediate)",
+  "监控内置运行，改动即时生效；仅超管可见可改。": "The monitor runs built-in; changes take effect immediately. Superadmin only.",
+
   // Heading
   "权限控制台": "Access console",
   "账号与权限": "Accounts & Access",

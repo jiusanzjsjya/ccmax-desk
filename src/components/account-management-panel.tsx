@@ -43,6 +43,9 @@ type Settings = {
   allowUserLedgerWrite: boolean;
   forcedPrefixEnabled: boolean;
   forcedProxyEnabled: boolean;
+  openaiKeyMonitorEnabled: boolean;
+  openaiKeyMonitorIntervalMinutes: number;
+  openaiKeyMonitorThreshold: number;
 };
 
 type PrefixItem = {
@@ -63,6 +66,9 @@ const emptySettings: Settings = {
   allowUserLedgerWrite: false,
   forcedPrefixEnabled: false,
   forcedProxyEnabled: false,
+  openaiKeyMonitorEnabled: false,
+  openaiKeyMonitorIntervalMinutes: 5,
+  openaiKeyMonitorThreshold: 1,
 };
 
 /** In-app modal state — replaces window.confirm/prompt (blocked in embedded/WebView contexts). */
@@ -431,7 +437,7 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
     }
   }
 
-  async function updateSetting(key: keyof Settings, value: boolean) {
+  async function updateSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
     if (!isSuperadmin) return;
     setSettings((current) => ({ ...current, [key]: value }));
     setSaving(true);
@@ -569,6 +575,34 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
           <SettingToggle label={t("允许普通用户结算台账记账")} checked={settings.allowUserLedgerWrite} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("allowUserLedgerWrite", value)} />
           <SettingToggle label={t("启用强制前缀")} checked={settings.forcedPrefixEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedPrefixEnabled", value)} />
           <SettingToggle label={t("上号强制选择出口代理")} checked={settings.forcedProxyEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("forcedProxyEnabled", value)} />
+          <SettingToggle label={t("启用 OpenAI Key 监控（自动禁用死/报错 Key）")} checked={settings.openaiKeyMonitorEnabled} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("openaiKeyMonitorEnabled", value)} />
+          <div className="monitor-config">
+            <label className="field-label" htmlFor="monitor-interval">{t("监控巡检周期（分钟）")}</label>
+            <input
+              id="monitor-interval"
+              className="text-input"
+              type="number"
+              min={1}
+              max={1440}
+              value={settings.openaiKeyMonitorIntervalMinutes}
+              disabled={!isSuperadmin || saving}
+              onChange={(e) => setSettings((c) => ({ ...c, openaiKeyMonitorIntervalMinutes: clampInt(e.target.value, 1, 1440) }))}
+              onBlur={() => void updateSetting("openaiKeyMonitorIntervalMinutes", settings.openaiKeyMonitorIntervalMinutes)}
+            />
+            <label className="field-label" htmlFor="monitor-threshold">{t("连续异常禁用阈值（次，1=立即）")}</label>
+            <input
+              id="monitor-threshold"
+              className="text-input"
+              type="number"
+              min={1}
+              max={100}
+              value={settings.openaiKeyMonitorThreshold}
+              disabled={!isSuperadmin || saving}
+              onChange={(e) => setSettings((c) => ({ ...c, openaiKeyMonitorThreshold: clampInt(e.target.value, 1, 100) }))}
+              onBlur={() => void updateSetting("openaiKeyMonitorThreshold", settings.openaiKeyMonitorThreshold)}
+            />
+            <p className="management-help">{t("监控内置运行，改动即时生效；仅超管可见可改。")}</p>
+          </div>
         </div>
         ) : null}
 
@@ -761,6 +795,13 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
 
     </section>
   );
+}
+
+/** Parse an integer input, clamped to [min, max]; falls back to `min` on junk. */
+function clampInt(raw: string, min: number, max: number): number {
+  const parsed = Math.floor(Number(raw));
+  if (!Number.isFinite(parsed)) return min;
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function SettingToggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange: (value: boolean) => void }) {

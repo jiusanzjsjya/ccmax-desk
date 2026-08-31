@@ -15,6 +15,9 @@ const settingsSchema = z.object({
   allowUserLedgerWrite: z.boolean().optional(),
   forcedPrefixEnabled: z.boolean().optional(),
   forcedProxyEnabled: z.boolean().optional(),
+  openaiKeyMonitorEnabled: z.boolean().optional(),
+  openaiKeyMonitorIntervalMinutes: z.coerce.number().int().min(1).max(1440).optional(),
+  openaiKeyMonitorThreshold: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 export async function GET() {
