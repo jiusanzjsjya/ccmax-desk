@@ -67,7 +67,5 @@ export const poolOps: Record<string, string> = {
   "当前角色不允许查看账号池。": "Your role is not allowed to view the account pool.",
   "Sub2API 尚未配置，请在「多平台后端」填写地址与管理令牌。":
     "Sub2API is not configured yet — set the address and admin token under “Backends”.",
-  "Sub2API 管理令牌无效或已过期，请更新 SUB2API_ADMIN_TOKEN。":
-    "The Sub2API admin token is invalid or expired — update SUB2API_ADMIN_TOKEN.",
   "读取账号池运维数据失败。": "Failed to read account pool operations data.",
 };

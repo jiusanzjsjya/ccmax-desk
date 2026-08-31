@@ -80,7 +80,7 @@ export function mapSub2ApiError(error: unknown, fallback: string) {
           : 502,
       body: {
         error: isAuthenticationFailure
-          ? "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。"
+          ? "鉴权失败或权限不足，请检查该平台的令牌或账号密码。"
           : error.message,
         code: isAuthenticationFailure ? "sub2api_auth_failed" : error.code,
       },

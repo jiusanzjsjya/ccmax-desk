@@ -25,7 +25,6 @@ export const pool: Record<string, string> = {
   "无法连接账号池服务，请检查本地服务状态。": "Cannot reach the account pool service. Check the local service status.",
   "当前角色不允许查看账号池。": "Your role is not allowed to view the account pool.",
   "Sub2API 尚未配置，请在「多平台后端」填写地址与管理令牌。": "Sub2API is not configured yet. Set the address and admin token under Backends.",
-  "Sub2API 管理令牌无效或已过期，请更新 SUB2API_ADMIN_TOKEN。": "The Sub2API admin token is invalid or expired. Update SUB2API_ADMIN_TOKEN.",
   "读取账号池失败。": "Failed to read the account pool.",
 
   // Headings / empty states

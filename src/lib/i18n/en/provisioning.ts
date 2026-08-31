@@ -134,8 +134,6 @@ export const provisioning: Record<string, string> = {
   // API error branches
   "管理员会话已失效，请重新登录。": "Your admin session has expired — please sign in again.",
   "待处理槽位过多，请先完成或清理已有槽位。": "Too many pending slots — finish or clear existing ones first.",
-  "Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。":
-    "The Sub2API admin token is invalid or lacks permission — update SUB2API_ADMIN_TOKEN.",
   "超级管理员已暂停普通用户上号，请联系管理员。":
     "The superadmin has paused onboarding for regular users — contact an administrator.",
   "当前角色或系统开关不允许执行此操作。": "Your role or a system switch doesn't allow this action.",

@@ -457,6 +457,6 @@ function formatDate(value: string | null) {
 function readOpsError(status: number, error?: string) {
   if (status === 403) return "当前角色不允许查看账号池。";
   if (status === 503 && error === "sub2api_not_configured") return "Sub2API 尚未配置，请在「多平台后端」填写地址与管理令牌。";
-  if (status === 502 && error === "sub2api_auth_failed") return "Sub2API 管理令牌无效或已过期，请更新 SUB2API_ADMIN_TOKEN。";
+  if (status === 502 && error === "sub2api_auth_failed") return "鉴权失败或权限不足，请检查该平台的令牌或账号密码。";
   return error || "读取账号池运维数据失败。";
 }

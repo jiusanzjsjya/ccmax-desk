@@ -8,7 +8,6 @@ import { resolveOpenAIConfig } from "@/lib/backends/registry";
 import {
   countOpenAIAccountsByPrefix,
   createOpenAIApiKeyAccount,
-  mapSub2ApiError,
   Sub2ApiError,
   type Sub2ApiRequestConfig,
 } from "@/lib/sub2api";
@@ -51,7 +50,7 @@ export async function POST(request: Request) {
   try {
     config = await resolveOpenAIConfig(ref);
   } catch (error) {
-    return sub2Error(error, "目标平台不可用");
+    return sub2Error(error);
   }
 
   const parsed = uploadSchema.safeParse(await request.json().catch(() => null));
@@ -113,13 +112,12 @@ export async function POST(request: Request) {
       // Dead-key surfacing: Sub2API probes api-key accounts, so a key that fails
       // validation comes back non-active / unschedulable or with an error note.
       const dead = account.status !== "active" || account.schedulable === false || Boolean(account.errorMessage);
-      results.push({ key: maskKey(apiKey), name, ok: true, dead, error: dead ? account.errorMessage ?? "疑似死 Key（未通过校验）" : undefined });
+      results.push({ key: maskKey(apiKey), name, ok: true, dead, error: dead ? cleanMessage(account.errorMessage ?? "疑似死 Key（未通过校验）") : undefined });
     } catch (error) {
-      const failure = mapSub2ApiError(error, "上传失败");
       if (!(error instanceof Sub2ApiError)) {
         console.error("[provisioning.openai.keys] failed", error instanceof Error ? error.message : error);
       }
-      results.push({ key: maskKey(apiKey), name, ok: false, error: String((failure.body as { error?: string }).error ?? "上传失败") });
+      results.push({ key: maskKey(apiKey), name, ok: false, error: uploadErrorMessage(error) });
     }
   }
 
@@ -128,12 +126,73 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: okCount > 0, okCount, failCount: results.length - okCount, deadCount, results });
 }
 
-function sub2Error(error: unknown, fallback: string) {
-  const failure = mapSub2ApiError(error, fallback);
+// Whole-request failure (target resolve / gateway login). Report the real error
+// but keep the HTTP status at 502 so the client never mistakes it for its own
+// session-expiry 401 (which triggers a logout). The actual upstream status is
+// carried inside the message as `[401]` etc.
+function sub2Error(error: unknown) {
   if (!(error instanceof Sub2ApiError)) {
     console.error("[provisioning.openai.keys] target resolve failed", error instanceof Error ? error.message : error);
   }
-  return NextResponse.json(failure.body, { status: failure.status });
+  return NextResponse.json({ error: uploadErrorMessage(error) }, { status: 502 });
+}
+
+/**
+ * Turn an upstream error into a user-facing message: the real HTTP status +
+ * a category label + the actual detail, with gateway/product names stripped.
+ * Never leaks the SUB2API_ADMIN_TOKEN hint or a specific gateway's name.
+ */
+function uploadErrorMessage(error: unknown): string {
+  if (error instanceof Sub2ApiError) {
+    const status = error.status;
+    const label = statusLabel(status);
+    const detail = cleanMessage(error.message);
+    const head = status ? `[${status}] ${label}` : label;
+    return detail && !isGenericDetail(detail) ? `${head}：${detail}` : head;
+  }
+  return "连接失败或服务不可达";
+}
+
+/** Category label per HTTP status — several distinct kinds of validation error. */
+function statusLabel(status?: number): string {
+  switch (status) {
+    case 400:
+      return "请求无效";
+    case 401:
+      return "密钥无效或未授权";
+    case 402:
+      return "余额不足或欠费";
+    case 403:
+      return "无权限或被拒绝";
+    case 404:
+      return "资源不存在";
+    case 408:
+      return "请求超时";
+    case 409:
+      return "冲突（可能重复或分组混渠道）";
+    case 422:
+      return "参数校验失败";
+    case 429:
+      return "频率或额度限制";
+    default:
+      if (status && status >= 500) return "上游服务错误";
+      return "上传失败";
+  }
+}
+
+/** Strip gateway/product names so errors never leak backend identity. */
+function cleanMessage(message: string): string {
+  return message
+    .replace(/Sub2API\s*网关/g, "目标平台")
+    .replace(/Claude\s*Gateway/g, "目标平台")
+    .replace(/Sub2API/g, "目标平台")
+    .replace(/，?\s*请更新\s*SUB2API_ADMIN_TOKEN。?/g, "")
+    .trim();
+}
+
+/** The generic "请求失败（HTTP xxx）" fallback adds nothing beyond the status label. */
+function isGenericDetail(detail: string): boolean {
+  return detail === "" || detail === "目标平台" || /请求失败（HTTP\s*\d+）/.test(detail);
 }
 
 /** Local-date stamp YYYYMMDD for the name binding. */

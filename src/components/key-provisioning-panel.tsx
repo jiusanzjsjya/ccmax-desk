@@ -168,7 +168,7 @@ function readApiError(t: TFn, status: number, error: string | undefined, fallbac
     return t("当前角色或系统开关不允许执行此操作。");
   }
   if (status === 502 && error === "sub2api_auth_failed") {
-    return t("Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。");
+    return t("鉴权失败或权限不足，请检查该平台的令牌或账号密码。");
   }
   if (status === 503) return t("服务尚未配置完成，请检查 .env.local。");
   return error || fallback;

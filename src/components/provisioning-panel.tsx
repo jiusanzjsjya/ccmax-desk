@@ -1262,7 +1262,7 @@ function readApiError(t: TFn, status: number, error: string | undefined, fallbac
   if (status === 401) return t("管理员会话已失效，请重新登录。");
   if (status === 429) return t("待处理槽位过多，请先完成或清理已有槽位。");
   if (status === 502 && error === "sub2api_auth_failed") {
-    return t("Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。");
+    return t("鉴权失败或权限不足，请检查该平台的令牌或账号密码。");
   }
   if (status === 403) {
     if (error === "user_provisioning_disabled") return t("超级管理员已暂停普通用户上号，请联系管理员。");

@@ -56,7 +56,7 @@ export default function KeyUsagePanel({ sub2ApiConfigured }: KeyUsagePanelProps)
 
     function readError(status: number, code?: string) {
       if (status === 403 && code === "module_forbidden") return t("未获授权上key权限，请联系超级管理员开通。");
-      if (status === 502 && code === "sub2api_auth_failed") return t("Sub2API 管理令牌无效或权限不足，请更新 SUB2API_ADMIN_TOKEN。");
+      if (status === 502 && code === "sub2api_auth_failed") return t("鉴权失败或权限不足，请检查该平台的令牌或账号密码。");
       if (status === 503) return t("服务尚未配置完成，请检查 .env.local。");
       return code || t("读取 Key 使用额度失败。");
     }
