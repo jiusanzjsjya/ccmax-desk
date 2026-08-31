@@ -190,9 +190,6 @@ export default function DashboardShell(props: DashboardShellProps) {
               <span>{t(props.roleLabel)}</span>
             </span>
           </div>
-          <LocaleToggle />
-          <ThemeToggle />
-          <LogoutButton />
         </div>
       </aside>
 
@@ -203,7 +200,14 @@ export default function DashboardShell(props: DashboardShellProps) {
             <h1>{t(current.title)}</h1>
             <em>{t(current.subtitle)}</em>
           </div>
-          <SignalPath sub2ApiConfigured={props.sub2ApiConfigured} />
+          <div className="topbar-right">
+            <SignalPath sub2ApiConfigured={props.sub2ApiConfigured} />
+            <div className="topbar-actions">
+              <LocaleToggle />
+              <ThemeToggle />
+              <LogoutButton />
+            </div>
+          </div>
         </header>
 
         <main className="view">
