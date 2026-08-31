@@ -311,45 +311,6 @@ export async function createOpenAIApiKeyAccount(
   return summarizeAccount(response);
 }
 
-/** Outcome of a pre-create key validation. `skip` = endpoint absent → caller may fail-open. */
-export type OpenAIKeyValidation = { alive: true } | { alive: false; skip: boolean; status?: number; message: string };
-
-/**
- * Validate an OpenAI api-key WITHOUT creating an account: ask Sub2API to sync the
- * upstream model catalog with it. A live key returns a catalog; a dead/invalid
- * key fails (typically HTTP 502 from the upstream). Runs on Sub2API's egress, so
- * it works where CCMax itself cannot reach OpenAI directly.
- *
- * VERIFIED endpoint (Wei-Shaw/sub2api account_handler.go → SyncUpstreamModelsPreview):
- *   POST /api/v1/admin/accounts/models/sync-upstream-preview
- *   body { platform, type, base_url?, api_key, model_mapping? }  // platform/type/api_key required
- * `skip` is true only for 404/405 (endpoint missing on an older Sub2API).
- */
-export async function validateOpenAIKey(
-  input: { apiKey: string; baseUrl?: string; modelMapping?: Record<string, string> },
-  cfg?: Sub2ApiRequestConfig,
-): Promise<OpenAIKeyValidation> {
-  const config = cfg ?? (await getSub2ApiConfig());
-  try {
-    await request<unknown>(config, "/api/v1/admin/accounts/models/sync-upstream-preview", {
-      method: "POST",
-      body: JSON.stringify({
-        platform: "openai",
-        type: "apikey",
-        ...(input.baseUrl ? { base_url: input.baseUrl } : {}),
-        api_key: input.apiKey,
-        ...(input.modelMapping ? { model_mapping: input.modelMapping } : {}),
-      }),
-    });
-    return { alive: true };
-  } catch (error) {
-    if (error instanceof Sub2ApiError) {
-      const skip = error.status === 404 || error.status === 405;
-      return { alive: false, skip, status: error.status, message: error.message };
-    }
-    return { alive: false, skip: false, message: "Key 校验请求失败" };
-  }
-}
 
 /**
  * Count existing OpenAI api-key accounts whose name matches `prefix` (a `search`
@@ -392,6 +353,53 @@ export async function disableAccount(id: number | string, cfg?: Sub2ApiRequestCo
   }).catch((error) => {
     console.error("[sub2api.disableAccount] schedulable leg failed", error instanceof Error ? error.message : error);
   });
+}
+
+/** Delete an account. VERIFIED: DELETE /api/v1/admin/accounts/:id. */
+export async function deleteAccount(id: number | string, cfg?: Sub2ApiRequestConfig): Promise<void> {
+  const config = cfg ?? (await getSub2ApiConfig());
+  await request(config, `/api/v1/admin/accounts/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Actively test an account by sending a real request THROUGH it (Sub2API's own
+ * account test) — a dead/expired OpenAI key fails here even though it passes the
+ * static model preview. VERIFIED: POST /api/v1/admin/accounts/:id/test, all
+ * TestAccountRequest fields optional, streams SSE. We read the stream to
+ * completion and look for a clear upstream auth/credential failure. Conservative
+ * by design: only a specific auth marker marks the key dead, so a transient blip
+ * never false-fails a good key.
+ */
+export async function testOpenAIAccount(
+  id: number | string,
+  cfg?: Sub2ApiRequestConfig,
+): Promise<{ conclusive: boolean; alive: boolean; detail: string }> {
+  const config = cfg ?? (await getSub2ApiConfig());
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/api/v1/admin/accounts/${id}/test`, {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        ...(config.adminToken.startsWith("admin-") ? { "x-api-key": config.adminToken } : { Authorization: `Bearer ${config.adminToken}` }),
+      },
+      body: JSON.stringify({ prompt: "ping", mode: "chat" }),
+      cache: "no-store",
+    });
+  } catch {
+    return { conclusive: false, alive: true, detail: "" }; // can't reach — inconclusive
+  }
+
+  const text = redactMessage(await response.text().catch(() => ""));
+  // Clear OpenAI credential failure — e.g. "Incorrect API key provided",
+  // {"code":"invalid_api_key"}, 401/unauthorized.
+  const authFail = /incorrect api key|invalid[_ ]?api[_ ]?key|invalid_authentication|unauthoriz|authentication_error|no such key|account .*(deactivated|disabled|revoked)/i.test(text);
+  if (authFail) {
+    const m = text.match(/"message"\s*:\s*"([^"]{3,200})"/i) || text.match(/"error"\s*:\s*"([^"]{3,200})"/i);
+    return { conclusive: true, alive: false, detail: m ? m[1] : "Key 校验未通过（无效或已失效）" };
+  }
+  return { conclusive: true, alive: true, detail: "" };
 }
 
 export async function listClaudeAccounts(cfg?: Sub2ApiRequestConfig) {
@@ -724,9 +732,9 @@ function mapWindow(progress: RawUsageProgress | null | undefined): WindowUse | n
   };
 }
 
-/** List account groups (id + name) for the pool filter dropdown. */
-export async function listGroups(): Promise<{ id: number; name: string }[]> {
-  const config = await getSub2ApiConfig();
+/** List account groups (id + name) for the pool filter dropdown / group picker. */
+export async function listGroups(cfg?: Sub2ApiRequestConfig): Promise<{ id: number; name: string }[]> {
+  const config = cfg ?? (await getSub2ApiConfig());
   const data = await request<{ items?: Array<{ id?: number; name?: string }> } | Array<{ id?: number; name?: string }>>(
     config,
     "/api/v1/admin/groups?page_size=1000&sort_by=sort_order&sort_order=asc",

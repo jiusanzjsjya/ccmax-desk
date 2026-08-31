@@ -4,6 +4,13 @@ export const backends: Record<string, string> = {
   "OpenAI 企业分组 ID（上 key 用，留空不进组）": "OpenAI enterprise group ID (for key upload; blank = no group)",
   "OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）":
     "OpenAI enterprise group IDs (for key upload; comma-separated; blank = no group)",
+  "OpenAI 企业分组（上 key 用，可多选，留空不进组）": "OpenAI enterprise groups (for key upload; multi-select; blank = no group)",
+  "按名勾选，或手填 id：例如 1, 4": "Tick by name, or type ids: e.g. 1, 4",
+  "拉取分组": "Load groups",
+  "拉取中...": "Loading...",
+  "读取分组失败：请先保存该网关的地址与账号密码，再拉取。":
+    "Failed to load groups: save the gateway's URL and credentials first, then load.",
+  "读取分组失败。": "Failed to load groups.",
   "例如 1, 4": "e.g. 1, 4",
 
   // Sub2API password-auth gateway

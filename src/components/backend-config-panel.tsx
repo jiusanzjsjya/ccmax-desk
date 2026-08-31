@@ -96,6 +96,9 @@ export default function BackendConfigPanel() {
   const [tokens, setTokens] = useState<TokenInputs>(emptyTokens);
   // Raw comma-separated group-id text while editing (parsed into config on change).
   const [groupText, setGroupText] = useState<{ sub2api: string; sub2gws: Record<string, string> }>({ sub2api: "", sub2gws: {} });
+  // Fetched groups (id + name) per card key ("sub2api" | gateway.id) for the picker.
+  const [groupOptions, setGroupOptions] = useState<Record<string, { id: number; name: string }[]>>({});
+  const [groupLoading, setGroupLoading] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -177,6 +180,45 @@ export default function BackendConfigPanel() {
 
   function setSub2GwPassword(id: string, value: string) {
     setTokens((current) => ({ ...current, sub2gws: { ...current.sub2gws, [id]: value } }));
+  }
+
+  /** Fetch the instance's real groups (id + name) for the picker. Needs a saved instance. */
+  async function loadGroups(ref: string, key: string) {
+    setGroupLoading(key);
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/backends/groups?ref=${encodeURIComponent(ref)}`, { cache: "no-store" });
+      if (response.status === 401) return redirectToLogin();
+      const payload = (await response.json().catch(() => ({}))) as { items?: { id: number; name: string }[]; error?: string };
+      if (!response.ok || !payload.items) {
+        setError(t("读取分组失败：请先保存该网关的地址与账号密码，再拉取。"));
+        return;
+      }
+      setGroupOptions((current) => ({ ...current, [key]: payload.items ?? [] }));
+    } catch {
+      setError(t("读取分组失败。"));
+    } finally {
+      setGroupLoading("");
+    }
+  }
+
+  /** Toggle a group id in a card's openaiGroupIds (keeps the text mirror in sync). */
+  function toggleGroup(target: "sub2api" | { gwId: string }, id: number, checked: boolean) {
+    const current =
+      target === "sub2api"
+        ? config?.sub2api.openaiGroupIds ?? []
+        : config?.sub2gws.find((gw) => gw.id === target.gwId)?.openaiGroupIds ?? [];
+    const set = new Set(current);
+    if (checked) set.add(id);
+    else set.delete(id);
+    const ids = [...set].sort((a, b) => a - b);
+    if (target === "sub2api") {
+      patchPlatform("sub2api", { openaiGroupIds: ids });
+      setGroupText((g) => ({ ...g, sub2api: ids.join(", ") }));
+    } else {
+      patchSub2Gw(target.gwId, { openaiGroupIds: ids });
+      setGroupText((g) => ({ ...g, sub2gws: { ...g.sub2gws, [target.gwId]: ids.join(", ") } }));
+    }
   }
 
   function toggleEnabled(ref: string, on: boolean) {
@@ -427,7 +469,7 @@ export default function BackendConfigPanel() {
               <Field label={t("默认代理 ID（可选）")}>
                 <input className="text-input" type="number" value={config.sub2api.proxyId ?? ""} onChange={(e) => patchPlatform("sub2api", { proxyId: e.target.value ? Number(e.target.value) : null })} placeholder={t("留空由 Sub2API 分配")} disabled={saving} />
               </Field>
-              <Field label={t("OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）")}>
+              <Field label={t("OpenAI 企业分组（上 key 用，可多选，留空不进组）")}>
                 <input
                   className="text-input"
                   value={groupText.sub2api}
@@ -436,10 +478,21 @@ export default function BackendConfigPanel() {
                     setGroupText((g) => ({ ...g, sub2api: v }));
                     patchPlatform("sub2api", { openaiGroupIds: parseGroupIds(v) });
                   }}
-                  placeholder={t("例如 1, 4")}
+                  placeholder={t("按名勾选，或手填 id：例如 1, 4")}
                   disabled={saving}
                 />
               </Field>
+              <div className="module-grant">
+                <button className="secondary-button compact-button" type="button" onClick={() => void loadGroups("sub2api", "sub2api")} disabled={saving || groupLoading === "sub2api"}>
+                  {groupLoading === "sub2api" ? t("拉取中...") : t("拉取分组")}
+                </button>
+                {(groupOptions.sub2api ?? []).map((grp) => (
+                  <label key={grp.id} className="module-grant-option">
+                    <input type="checkbox" checked={config.sub2api.openaiGroupIds.includes(grp.id)} onChange={(e) => toggleGroup("sub2api", grp.id, e.target.checked)} disabled={saving} />
+                    <span>{grp.name}（{grp.id}）</span>
+                  </label>
+                ))}
+              </div>
             </PlatformCard>
 
             <PlatformCard title="new-api" configured={config.configured.newapi}>
@@ -620,7 +673,7 @@ export default function BackendConfigPanel() {
                     <Field label={t("管理员密码")}>
                       <TokenInput has={gateway.hasPassword} value={tokens.sub2gws[gateway.id] ?? ""} onChange={(v) => setSub2GwPassword(gateway.id, v)} disabled={saving} />
                     </Field>
-                    <Field label={t("OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）")}>
+                    <Field label={t("OpenAI 企业分组（上 key 用，可多选，留空不进组）")}>
                       <input
                         className="text-input"
                         value={groupText.sub2gws[gateway.id] ?? ""}
@@ -629,10 +682,21 @@ export default function BackendConfigPanel() {
                           setGroupText((g) => ({ ...g, sub2gws: { ...g.sub2gws, [gateway.id]: v } }));
                           patchSub2Gw(gateway.id, { openaiGroupIds: parseGroupIds(v) });
                         }}
-                        placeholder={t("例如 1, 4")}
+                        placeholder={t("按名勾选，或手填 id：例如 1, 4")}
                         disabled={saving}
                       />
                     </Field>
+                    <div className="module-grant">
+                      <button className="secondary-button compact-button" type="button" onClick={() => void loadGroups(gateway.ref, gateway.id)} disabled={saving || groupLoading === gateway.id}>
+                        {groupLoading === gateway.id ? t("拉取中...") : t("拉取分组")}
+                      </button>
+                      {(groupOptions[gateway.id] ?? []).map((grp) => (
+                        <label key={grp.id} className="module-grant-option">
+                          <input type="checkbox" checked={gateway.openaiGroupIds.includes(grp.id)} onChange={(e) => toggleGroup({ gwId: gateway.id }, grp.id, e.target.checked)} disabled={saving} />
+                          <span>{grp.name}（{grp.id}）</span>
+                        </label>
+                      ))}
+                    </div>
                     <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
                       <span>{t("启用该网关")}</span>
                       <input

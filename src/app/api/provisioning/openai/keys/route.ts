@@ -8,8 +8,9 @@ import { resolveOpenAIConfig } from "@/lib/backends/registry";
 import {
   countOpenAIAccountsByPrefix,
   createOpenAIApiKeyAccount,
+  deleteAccount,
   Sub2ApiError,
-  validateOpenAIKey,
+  testOpenAIAccount,
   type Sub2ApiRequestConfig,
 } from "@/lib/sub2api";
 
@@ -64,7 +65,6 @@ export async function POST(request: Request) {
   const settings = context.store.settings;
   const baseUrl = settings.openaiUploadBaseUrl || undefined;
   const groupIds = await getOpenAIUploadGroupIds(ref);
-  let previewUnavailable = false; // logged once when the validate endpoint is absent
 
   // Name binding: <登录账号名>-<YYYYMMDD>-<NN>. Continue the day's sequence by
   // counting accounts already named with this prefix on the target instance
@@ -87,24 +87,6 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // Pre-create liveness check: reject dead keys BEFORE they ever enter the pool.
-    // Fail-open only when the validate endpoint is missing (older Sub2API).
-    if (settings.openaiUploadValidateKey) {
-      const check = await validateOpenAIKey({ apiKey, baseUrl }, config);
-      if (!check.alive) {
-        if (check.skip) {
-          if (!previewUnavailable) {
-            previewUnavailable = true;
-            console.warn("[provisioning.openai.keys] validate endpoint unavailable, skipping key validation");
-          }
-        } else {
-          const detail = uploadErrorMessage(new Sub2ApiError(check.message, check.status));
-          results.push({ key: maskKey(apiKey), ok: false, error: `Key 校验未通过，未入池：${detail}` });
-          continue;
-        }
-      }
-    }
-
     const name = `${prefix}${String(startIndex + seq).padStart(2, "0")}`;
     seq += 1;
     try {
@@ -119,6 +101,19 @@ export async function POST(request: Request) {
         },
         config,
       );
+
+      // Real liveness test THROUGH the account (the static model preview does not
+      // validate an OpenAI key). A conclusively-dead key is deleted, not kept.
+      if (settings.openaiUploadValidateKey && account?.id != null) {
+        const test = await testOpenAIAccount(account.id, config);
+        if (test.conclusive && !test.alive) {
+          await deleteAccount(account.id, config).catch((error) =>
+            console.error("[provisioning.openai.keys] delete dead key failed", error instanceof Error ? error.message : error),
+          );
+          results.push({ key: maskKey(apiKey), name, ok: false, error: `校验未通过（死 Key），已删除未入池：${cleanMessage(test.detail)}` });
+          continue;
+        }
+      }
 
       if (account?.id != null) {
         await recordPoolOwnership({
