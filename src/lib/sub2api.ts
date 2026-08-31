@@ -1,5 +1,13 @@
 import { getSub2ApiConfig } from "@/lib/backend-config";
 
+/**
+ * Connection + auth for one Sub2API instance. `adminToken` may be a long-lived
+ * admin API key (`admin-…` → x-api-key) OR a login JWT (→ Authorization: Bearer)
+ * — see {@link authHeader}. Password-auth gateways (sub2gw) pass a fresh JWT here
+ * so the same client functions target any Sub2API instance, not just the env one.
+ */
+export type Sub2ApiRequestConfig = { baseUrl: string; adminToken: string; proxyId?: number };
+
 export type ClaudeTokenInfo = {
   access_token: string;
   token_type?: string;
@@ -216,13 +224,16 @@ export async function exchangeClaudeCode(flow: { sessionId: string; code: string
   });
 }
 
-export async function createClaudeAccount(input: {
-  name: string;
-  notes?: string;
-  tokenInfo: ClaudeTokenInfo;
-  groupIds?: number[];
-}) {
-  const config = await getSub2ApiConfig();
+export async function createClaudeAccount(
+  input: {
+    name: string;
+    notes?: string;
+    tokenInfo: ClaudeTokenInfo;
+    groupIds?: number[];
+  },
+  cfg?: Sub2ApiRequestConfig,
+) {
+  const config = cfg ?? (await getSub2ApiConfig());
   const { tokenInfo } = input;
   const response = await request<RawSub2ApiAccount>(config, "/api/v1/admin/accounts", {
     method: "POST",
@@ -259,19 +270,22 @@ export async function createClaudeAccount(input: {
  * rate_multiplier/proxy_id/auto_pause_on_expired) mirror createClaudeAccount.
  * There is NO token exchange step: the caller supplies the key directly.
  */
-export async function createOpenAIApiKeyAccount(input: {
-  name: string;
-  apiKey: string;
-  baseUrl?: string;
-  notes?: string;
-  groupIds?: number[];
-  proxyId?: number;
-  concurrency?: number;
-  priority?: number;
-  rateMultiplier?: number;
-  modelMapping?: Record<string, string>;
-}) {
-  const config = await getSub2ApiConfig();
+export async function createOpenAIApiKeyAccount(
+  input: {
+    name: string;
+    apiKey: string;
+    baseUrl?: string;
+    notes?: string;
+    groupIds?: number[];
+    proxyId?: number;
+    concurrency?: number;
+    priority?: number;
+    rateMultiplier?: number;
+    modelMapping?: Record<string, string>;
+  },
+  cfg?: Sub2ApiRequestConfig,
+) {
+  const config = cfg ?? (await getSub2ApiConfig());
   const proxyId = input.proxyId ?? config.proxyId;
   const response = await request<RawSub2ApiAccount>(config, "/api/v1/admin/accounts", {
     method: "POST",
@@ -302,8 +316,8 @@ export async function createOpenAIApiKeyAccount(input: {
  * substring). Used to continue the daily upload sequence (账号名-日期-NN) instead
  * of restarting at 01 each batch. Returns the server-reported `total`.
  */
-export async function countOpenAIAccountsByPrefix(prefix: string): Promise<number> {
-  const config = await getSub2ApiConfig();
+export async function countOpenAIAccountsByPrefix(prefix: string, cfg?: Sub2ApiRequestConfig): Promise<number> {
+  const config = cfg ?? (await getSub2ApiConfig());
   const query = new URLSearchParams({
     page: "1",
     page_size: "1",
@@ -319,8 +333,8 @@ export async function countOpenAIAccountsByPrefix(prefix: string): Promise<numbe
   return typeof result.total === "number" ? result.total : (result.items || result.accounts || []).length;
 }
 
-export async function listClaudeAccounts() {
-  const config = await getSub2ApiConfig();
+export async function listClaudeAccounts(cfg?: Sub2ApiRequestConfig) {
+  const config = cfg ?? (await getSub2ApiConfig());
   const query = new URLSearchParams({
     page: "1",
     page_size: "50",
@@ -461,8 +475,8 @@ export type PoolAccountQuery = {
 };
 
 /** Rich Sub2API account list for the pool-review dashboard (no `lite`). */
-export async function listPoolAccounts(params: PoolAccountQuery): Promise<{ items: PoolAccount[]; total: number }> {
-  const config = await getSub2ApiConfig();
+export async function listPoolAccounts(params: PoolAccountQuery, cfg?: Sub2ApiRequestConfig): Promise<{ items: PoolAccount[]; total: number }> {
+  const config = cfg ?? (await getSub2ApiConfig());
   const query = new URLSearchParams({
     page: String(params.page ?? 1),
     page_size: String(params.pageSize ?? 20),
@@ -602,9 +616,9 @@ type RawUsageInfo = {
  * stringified map keys). Both calls are best-effort — a failure yields no usage
  * rather than breaking the account list.
  */
-export async function fetchPoolUsage(ids: number[]): Promise<Record<string, PoolUsage>> {
+export async function fetchPoolUsage(ids: number[], cfg?: Sub2ApiRequestConfig): Promise<Record<string, PoolUsage>> {
   if (!ids.length) return {};
-  const config = await getSub2ApiConfig();
+  const config = cfg ?? (await getSub2ApiConfig());
 
   const [today, usage] = await Promise.all([
     request<{ stats?: Record<string, RawWindowStats> }>(config, "/api/v1/admin/accounts/today-stats/batch", {

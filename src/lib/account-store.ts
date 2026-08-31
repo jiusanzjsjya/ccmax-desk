@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { env } from "@/lib/env";
 import type { Role } from "@/lib/roles";
-import { ccgatewayIdFromRef, ccgatewayRef, customIdFromRef, customRef, refKind, type BackendRef } from "@/lib/backends/kinds";
+import { ccgatewayIdFromRef, ccgatewayRef, customIdFromRef, customRef, refKind, sub2gwIdFromRef, sub2gwRef, type BackendRef } from "@/lib/backends/kinds";
 import { encryptSecret } from "@/lib/secret-box";
 
 /**
@@ -180,6 +180,7 @@ export type BackendConfigStore = {
   oneapi: Omit<RelayBackendConfig, "userId">;
   customs: CustomGateway[];
   ccgateways: CcGateway[];
+  sub2gws: Sub2Gw[];
 };
 
 export type LocalAccountStore = {
@@ -209,7 +210,7 @@ const defaultSettings: SystemSettings = {
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
-type BackendConfigFields = Pick<BackendConfigStore, "sub2api" | "newapi" | "oneapi" | "customs" | "ccgateways">;
+type BackendConfigFields = Pick<BackendConfigStore, "sub2api" | "newapi" | "oneapi" | "customs" | "ccgateways" | "sub2gws">;
 
 /** Singleton (non-custom) backend kinds; custom gateways are addressed by ref. */
 const SINGLETON_KINDS = ["sub2api", "newapi", "oneapi"] as const;
@@ -230,6 +231,7 @@ function defaultBackendConfig(): BackendConfigStore {
 
   const config: BackendConfigFields = {
     ccgateways: [],
+    sub2gws: [],
     sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null },
     newapi: {
       baseUrl: env.NEWAPI_BASE_URL,
@@ -276,6 +278,11 @@ export function isBackendRefConfigured(ref: BackendRef, config: BackendConfigFie
       const gateway = id ? config.ccgateways.find((item) => item.id === id) : undefined;
       return Boolean(gateway?.baseUrl && gateway.vendorEmail && gateway.vendorPassword);
     }
+    case "sub2gw": {
+      const id = sub2gwIdFromRef(ref);
+      const gateway = id ? config.sub2gws.find((item) => item.id === id) : undefined;
+      return Boolean(gateway?.baseUrl && gateway.adminEmail && gateway.adminPassword);
+    }
     default:
       return false;
   }
@@ -292,15 +299,20 @@ function configuredRefs(config: BackendConfigFields): BackendRef[] {
     const ref = ccgatewayRef(gateway.id);
     if (isBackendRefConfigured(ref, config)) refs.push(ref);
   }
+  for (const gateway of config.sub2gws) {
+    const ref = sub2gwRef(gateway.id);
+    if (isBackendRefConfigured(ref, config)) refs.push(ref);
+  }
   return refs;
 }
 
 /** The set of refs that exist at all (singletons + defined gateways), configured or not. */
-function knownRefs(customs: CustomGateway[], ccgateways: CcGateway[]): Set<BackendRef> {
+function knownRefs(customs: CustomGateway[], ccgateways: CcGateway[], sub2gws: Sub2Gw[]): Set<BackendRef> {
   return new Set<BackendRef>([
     ...SINGLETON_KINDS,
     ...customs.map((gateway) => customRef(gateway.id)),
     ...ccgateways.map((gateway) => ccgatewayRef(gateway.id)),
+    ...sub2gws.map((gateway) => sub2gwRef(gateway.id)),
   ]);
 }
 
@@ -640,11 +652,29 @@ export type CcGateway = {
   groupId: string;
 };
 
+/**
+ * One password-auth Sub2API instance. Same Sub2API software/endpoints as the
+ * primary `sub2api` backend, but authenticated by an admin account login
+ * (email/password → short-lived JWT) instead of a long-lived admin API key. Used
+ * mainly as a target for OpenAI 上key. `adminPassword` is AES-encrypted at rest.
+ */
+export type Sub2Gw = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  adminEmail: string;
+  /** AES-encrypted at rest (`enc:v1:…`); decrypted only inside the adapter. */
+  adminPassword: string;
+};
+
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
 export type CustomGatewayPatch = { id?: string; name?: string; url?: string; token?: string; listUrl?: string };
 
 /** One ccgateway in a PATCH: blank `vendorPassword` keeps the stored (encrypted) one. */
 export type CcGatewayPatch = { id?: string; name?: string; baseUrl?: string; vendorEmail?: string; vendorPassword?: string; groupId?: string };
+
+/** One sub2gw in a PATCH: blank `adminPassword` keeps the stored (encrypted) one. */
+export type Sub2GwPatch = { id?: string; name?: string; baseUrl?: string; adminEmail?: string; adminPassword?: string };
 
 export type BackendConfigPatch = {
   defaultBackend?: BackendRef;
@@ -654,6 +684,7 @@ export type BackendConfigPatch = {
   oneapi?: Partial<Omit<RelayBackendConfig, "userId">>;
   customs?: CustomGatewayPatch[];
   ccgateways?: CcGatewayPatch[];
+  sub2gws?: Sub2GwPatch[];
 };
 
 export async function getBackendConfigStore() {
@@ -670,9 +701,10 @@ export async function updateBackendSettings(patch: BackendConfigPatch) {
     // Client submits the whole gateway list; merge by id so removed ones drop out.
     if (patch.customs) backends.customs = mergeCustomGateways(backends.customs, patch.customs);
     if (patch.ccgateways) backends.ccgateways = mergeCcGateways(backends.ccgateways, patch.ccgateways);
+    if (patch.sub2gws) backends.sub2gws = mergeSub2Gws(backends.sub2gws, patch.sub2gws);
 
     // enabled / default may point at gateways; keep them valid against the current set.
-    const known = knownRefs(backends.customs, backends.ccgateways);
+    const known = knownRefs(backends.customs, backends.ccgateways, backends.sub2gws);
     const nextEnabled = patch.enabled ?? backends.enabled;
     backends.enabled = nextEnabled.filter((ref) => known.has(ref));
     if (patch.defaultBackend && known.has(patch.defaultBackend)) backends.defaultBackend = patch.defaultBackend;
@@ -718,6 +750,29 @@ function mergeCcGateways(existing: CcGateway[], incoming: CcGatewayPatch[]): CcG
       vendorEmail: (patch.vendorEmail ?? prev?.vendorEmail ?? "").trim(),
       vendorPassword: nextPassword,
       groupId: (patch.groupId ?? prev?.groupId ?? "").trim(),
+    };
+  });
+}
+
+/**
+ * Merge an incoming sub2gw list into the stored one. A blank `adminPassword`
+ * keeps the stored (encrypted) one; a non-blank value is fresh plaintext that is
+ * encrypted before it ever touches disk.
+ */
+function mergeSub2Gws(existing: Sub2Gw[], incoming: Sub2GwPatch[]): Sub2Gw[] {
+  const byId = new Map(existing.map((gateway) => [gateway.id, gateway]));
+  return incoming.map((patch) => {
+    const prev = patch.id ? byId.get(patch.id) : undefined;
+    const nextPassword =
+      patch.adminPassword !== undefined && patch.adminPassword !== ""
+        ? encryptSecret(patch.adminPassword)
+        : prev?.adminPassword ?? "";
+    return {
+      id: patch.id || randomUUID(),
+      name: ((patch.name ?? prev?.name ?? "").trim()) || "Sub2API 网关",
+      baseUrl: (patch.baseUrl ?? prev?.baseUrl ?? "").trim().replace(/\/$/, ""),
+      adminEmail: (patch.adminEmail ?? prev?.adminEmail ?? "").trim(),
+      adminPassword: nextPassword,
     };
   });
 }
@@ -811,6 +866,7 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
 
   const customs = migrateCustomGateways(value, defaults.customs);
   const ccgateways = normalizeCcGateways(value.ccgateways);
+  const sub2gws = normalizeSub2Gws(value.sub2gws);
 
   const sub2api = { ...defaults.sub2api, ...(value.sub2api || {}) };
   const newapi = { ...defaults.newapi, ...(value.newapi || {}) };
@@ -819,7 +875,7 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
   // Legacy stores used the bare "custom" ref; remap it to the migrated gateway.
   const legacyCustomRef = customs[0] ? customRef(customs[0].id) : null;
   const mapRef = (ref: string): BackendRef => (ref === "custom" && legacyCustomRef ? legacyCustomRef : ref);
-  const known = knownRefs(customs, ccgateways);
+  const known = knownRefs(customs, ccgateways, sub2gws);
 
   const mappedEnabled = Array.isArray(value.enabled) ? value.enabled.map(mapRef).filter((ref) => known.has(ref)) : [];
   const enabled = mappedEnabled.length ? mappedEnabled : defaults.enabled;
@@ -832,7 +888,21 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
         ? defaults.defaultBackend
         : enabled[0] ?? "sub2api";
 
-  return { defaultBackend, enabled, sub2api, newapi, oneapi, customs, ccgateways };
+  return { defaultBackend, enabled, sub2api, newapi, oneapi, customs, ccgateways, sub2gws };
+}
+
+/** Coerce a persisted sub2gw array into the current shape (keeps encrypted password). */
+function normalizeSub2Gws(value: unknown): Sub2Gw[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((gateway): gateway is Record<string, unknown> => Boolean(gateway) && typeof gateway === "object")
+    .map((gateway) => ({
+      id: typeof gateway.id === "string" && gateway.id ? gateway.id : randomUUID(),
+      name: (typeof gateway.name === "string" && gateway.name.trim()) || "Sub2API 网关",
+      baseUrl: typeof gateway.baseUrl === "string" ? gateway.baseUrl : "",
+      adminEmail: typeof gateway.adminEmail === "string" ? gateway.adminEmail : "",
+      adminPassword: typeof gateway.adminPassword === "string" ? gateway.adminPassword : "",
+    }));
 }
 
 /** Coerce a persisted ccgateway array into the current shape (drops junk, keeps encrypted password). */

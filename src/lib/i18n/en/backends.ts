@@ -1,5 +1,16 @@
 /** English strings for the backends area. Populated during component conversion. */
 export const backends: Record<string, string> = {
+  // Sub2API password-auth gateway
+  "Sub2API 网关": "Sub2API Gateway",
+  "Sub2API 网关（账号密码鉴权，可多个）": "Sub2API Gateway (account+password auth, multiple)",
+  "与主 Sub2API 同款软件，但用管理员邮箱+密码登录换令牌（不用长效 admin key）。主要用于上 OpenAI Key：把该网关分配给用户后，其上 key 即写入这里。":
+    "Same software as the primary Sub2API, but logs in with an admin email + password for a short-lived token (no long-lived admin key). Mainly for uploading OpenAI keys: assign this gateway to a user and their key uploads land here.",
+  "+ 添加 Sub2API 网关": "+ Add Sub2API Gateway",
+  "例如 站点-A": "e.g. site-A",
+  "管理员邮箱": "Admin email",
+  "管理员密码": "Admin password",
+  "还没有 Sub2API 网关，点「添加 Sub2API 网关」新增。": "No Sub2API gateways yet — click \"Add Sub2API Gateway\" to create one.",
+
   // Panel heading
   "多平台后端": "Backends",
   "上号目标平台配置": "Onboarding target platform configuration",

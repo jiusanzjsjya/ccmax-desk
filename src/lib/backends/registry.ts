@@ -1,10 +1,11 @@
-import { getBackendSettings, getCcGateway, getCustomGateway, getRelayConfig, isBackendConfigured } from "@/lib/backend-config";
-import { ccgatewayIdFromRef, customIdFromRef, refKind, type BackendRef } from "@/lib/backends/kinds";
-import { Sub2ApiError } from "@/lib/sub2api";
+import { getBackendSettings, getCcGateway, getCustomGateway, getRelayConfig, getSub2ApiConfig, getSub2Gw, isBackendConfigured } from "@/lib/backend-config";
+import { ccgatewayIdFromRef, customIdFromRef, refKind, sub2gwIdFromRef, type BackendRef } from "@/lib/backends/kinds";
+import { Sub2ApiError, type Sub2ApiRequestConfig } from "@/lib/sub2api";
 import { ccgatewayBackend } from "./ccgateway";
 import { customBackend } from "./custom";
 import { createRelayBackend } from "./relay";
 import { sub2apiBackend, sub2apiOAuthBroker } from "./sub2api";
+import { sub2gwBackend, sub2GwRequestConfig } from "./sub2gw";
 import type { OAuthBroker, PoolBackend } from "./types";
 
 /**
@@ -64,8 +65,40 @@ export async function resolveBackend(ref?: BackendRef): Promise<PoolBackend> {
       }
       return ccgatewayBackend(gateway);
     }
+    case "sub2gw": {
+      const id = sub2gwIdFromRef(target);
+      const gateway = id ? await getSub2Gw(id) : null;
+      if (!gateway) {
+        throw new Sub2ApiError(`Sub2API 网关不存在或已删除：${target}`);
+      }
+      return sub2gwBackend(gateway);
+    }
     default:
       throw new Sub2ApiError(`未知的目标后端：${target}`);
+  }
+}
+
+/**
+ * Resolve a Sub2API request config (baseUrl + auth) for an OpenAI-key-capable
+ * target. Only the primary `sub2api` (admin key) and a `sub2gw` (password login)
+ * expose the OpenAI api-key endpoints; every other backend is rejected. Used by
+ * the 上key / Key使用额度 routes so those flows can target either.
+ */
+export async function resolveOpenAIConfig(ref: BackendRef): Promise<Sub2ApiRequestConfig> {
+  if (!(await isBackendConfigured(ref))) {
+    throw new Sub2ApiError(`目标平台 ${ref} 尚未配置，请在超管后台完成配置`);
+  }
+  switch (refKind(ref)) {
+    case "sub2api":
+      return getSub2ApiConfig();
+    case "sub2gw": {
+      const id = sub2gwIdFromRef(ref);
+      const gateway = id ? await getSub2Gw(id) : null;
+      if (!gateway) throw new Sub2ApiError(`Sub2API 网关不存在或已删除：${ref}`);
+      return sub2GwRequestConfig(gateway);
+    }
+    default:
+      throw new Sub2ApiError("该目标平台不支持上 OpenAI Key（仅 Sub2API 及 Sub2API 网关支持）", 400);
   }
 }
 

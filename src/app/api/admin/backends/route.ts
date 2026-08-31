@@ -9,7 +9,7 @@ import {
   updateBackendSettings,
   type BackendConfigPatch,
 } from "@/lib/account-store";
-import { ccgatewayRef, customRef } from "@/lib/backends/kinds";
+import { ccgatewayRef, customRef, sub2gwRef } from "@/lib/backends/kinds";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +63,18 @@ const patchSchema = z.object({
         vendorEmail: z.string().trim().max(200).optional(),
         vendorPassword: z.string().max(400).optional(),
         groupId: z.string().trim().max(80).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  sub2gws: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(64).optional(),
+        name: z.string().trim().max(80).optional(),
+        baseUrl: z.string().trim().max(300).optional(),
+        adminEmail: z.string().trim().max(200).optional(),
+        adminPassword: z.string().max(400).optional(),
       }),
     )
     .max(20)
@@ -121,6 +133,16 @@ export async function GET() {
       groupId: gateway.groupId,
       configured: isBackendRefConfigured(ccgatewayRef(gateway.id), backends),
     })),
+    // Admin passwords are never returned; only whether one is set.
+    sub2gws: backends.sub2gws.map((gateway) => ({
+      id: gateway.id,
+      ref: sub2gwRef(gateway.id),
+      name: gateway.name,
+      baseUrl: gateway.baseUrl,
+      adminEmail: gateway.adminEmail,
+      hasPassword: Boolean(gateway.adminPassword),
+      configured: isBackendRefConfigured(sub2gwRef(gateway.id), backends),
+    })),
   });
 }
 
@@ -178,5 +200,7 @@ function stripBlankSecrets(input: z.infer<typeof patchSchema>): BackendConfigPat
   if (input.customs) patch.customs = input.customs;
   // Blank vendorPassword is likewise kept by the store merge (see mergeCcGateways).
   if (input.ccgateways) patch.ccgateways = input.ccgateways;
+  // Blank adminPassword is kept by the store merge (see mergeSub2Gws).
+  if (input.sub2gws) patch.sub2gws = input.sub2gws;
   return patch;
 }

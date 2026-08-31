@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { canUploadKey, getAccessContext, provisioningAccess } from "@/lib/access";
+import { canUploadKey, effectiveTargetBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { recordPoolOwnership } from "@/lib/account-store";
-import { isSub2ApiConfigured } from "@/lib/backend-config";
-import { countOpenAIAccountsByPrefix, createOpenAIApiKeyAccount, mapSub2ApiError, Sub2ApiError } from "@/lib/sub2api";
+import { resolveOpenAIConfig } from "@/lib/backends/registry";
+import {
+  countOpenAIAccountsByPrefix,
+  createOpenAIApiKeyAccount,
+  mapSub2ApiError,
+  Sub2ApiError,
+  type Sub2ApiRequestConfig,
+} from "@/lib/sub2api";
 
 export const dynamic = "force-dynamic";
 
-// 授权上key: batch-upload OpenAI upstream accounts by API key. OpenAI only, and
-// groups are NOT read here — the "key" authorization is the whole gate and the
-// upstream base_url is fixed to OpenAI's official API. Each account is named
-// `<登录账号名>-<YYYYMMDD>-<NN>`, where NN continues the day's existing sequence.
+// 授权上key: batch-upload OpenAI upstream accounts by API key. Targets the
+// caller's assigned platform — the primary Sub2API (admin key) OR a password-auth
+// Sub2API 网关 (sub2gw); other platforms are rejected. The upstream base_url is
+// fixed to OpenAI's official API. Each account is named
+// `<登录账号名>-<YYYYMMDD>-<NN>`, continuing the day's sequence on that instance.
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 const MAX_KEYS = 10;
 
@@ -34,8 +41,16 @@ export async function POST(request: Request) {
   // 授权上key module gate: default-deny unless the superadmin granted "key".
   if (!canUploadKey(context)) return NextResponse.json({ error: "module_forbidden" }, { status: 403 });
 
-  if (!(await isSub2ApiConfigured())) {
-    return NextResponse.json({ error: "provisioning_not_configured" }, { status: 503 });
+  // Target platform: superadmin uploads to the primary Sub2API; admin/user upload
+  // to their superadmin-assigned platform (must be Sub2API or a Sub2API 网关).
+  const ref = context.role === "superadmin" ? "sub2api" : effectiveTargetBackend(context);
+  if (!ref) return NextResponse.json({ error: "target_platform_unassigned" }, { status: 403 });
+
+  let config: Sub2ApiRequestConfig;
+  try {
+    config = await resolveOpenAIConfig(ref);
+  } catch (error) {
+    return sub2Error(error, "目标平台不可用");
   }
 
   const parsed = uploadSchema.safeParse(await request.json().catch(() => null));
@@ -44,21 +59,18 @@ export async function POST(request: Request) {
   }
 
   // Name binding: <登录账号名>-<YYYYMMDD>-<NN>. Continue the day's sequence by
-  // counting accounts already named with this prefix (best-effort: fall back to
-  // starting at 01 if the count lookup fails, so a transient error never blocks).
+  // counting accounts already named with this prefix on the target instance
+  // (best-effort: fall back to 01 if the count lookup fails).
   const accountName = sanitizeName(context.session.displayName || context.session.username);
   const prefix = `${accountName}-${todayStamp()}-`;
   let startIndex = 1;
   try {
-    startIndex = (await countOpenAIAccountsByPrefix(prefix)) + 1;
+    startIndex = (await countOpenAIAccountsByPrefix(prefix, config)) + 1;
   } catch (error) {
     console.error("[provisioning.openai.keys] sequence count failed, starting at 01", error instanceof Error ? error.message : error);
   }
 
   const results: Array<{ key: string; name?: string; ok: boolean; dead?: boolean; error?: string }> = [];
-  // Upload sequentially so one bad key never aborts the rest of the batch, and so
-  // the NN sequence stays contiguous. `seq` only advances for keys we actually
-  // send, so format-rejected lines don't burn a sequence number.
   let seq = 0;
   for (const rawKey of parsed.data.keys) {
     const apiKey = rawKey.trim();
@@ -70,11 +82,11 @@ export async function POST(request: Request) {
     const name = `${prefix}${String(startIndex + seq).padStart(2, "0")}`;
     seq += 1;
     try {
-      const account = await createOpenAIApiKeyAccount({ name, apiKey, baseUrl: OPENAI_BASE_URL });
+      const account = await createOpenAIApiKeyAccount({ name, apiKey, baseUrl: OPENAI_BASE_URL }, config);
 
       if (account?.id != null) {
         await recordPoolOwnership({
-          platform: "sub2api",
+          platform: ref,
           accountId: String(account.id),
           ownerId: context.session.userId,
           ownerUsername: context.session.username,
@@ -98,6 +110,14 @@ export async function POST(request: Request) {
   const okCount = results.filter((item) => item.ok).length;
   const deadCount = results.filter((item) => item.dead).length;
   return NextResponse.json({ ok: okCount > 0, okCount, failCount: results.length - okCount, deadCount, results });
+}
+
+function sub2Error(error: unknown, fallback: string) {
+  const failure = mapSub2ApiError(error, fallback);
+  if (!(error instanceof Sub2ApiError)) {
+    console.error("[provisioning.openai.keys] target resolve failed", error instanceof Error ? error.message : error);
+  }
+  return NextResponse.json(failure.body, { status: failure.status });
 }
 
 /** Local-date stamp YYYYMMDD for the name binding. */

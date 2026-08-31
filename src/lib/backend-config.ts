@@ -6,8 +6,9 @@ import {
   type CustomGateway,
   type RelayBackendConfig,
   type Sub2ApiBackendConfig,
+  type Sub2Gw,
 } from "@/lib/account-store";
-import { backendLabel, ccgatewayIdFromRef, customIdFromRef, refKind, type BackendKind, type BackendRef } from "@/lib/backends/kinds";
+import { backendLabel, ccgatewayIdFromRef, customIdFromRef, refKind, sub2gwIdFromRef, type BackendKind, type BackendRef } from "@/lib/backends/kinds";
 
 /** The superadmin-managed backend configuration (store over env seed). */
 export async function getBackendSettings(): Promise<BackendConfigStore> {
@@ -48,6 +49,12 @@ export async function getCustomGateway(id: string): Promise<CustomGateway | null
 export async function getCcGateway(id: string): Promise<CcGateway | null> {
   const { ccgateways } = await getBackendSettings();
   return ccgateways.find((gateway) => gateway.id === id) ?? null;
+}
+
+/** One password-auth Sub2API gateway by id; `adminPassword` stays encrypted. */
+export async function getSub2Gw(id: string): Promise<Sub2Gw | null> {
+  const { sub2gws } = await getBackendSettings();
+  return sub2gws.find((gateway) => gateway.id === id) ?? null;
 }
 
 export async function isBackendConfigured(ref: BackendRef): Promise<boolean> {
@@ -92,6 +99,11 @@ function refLabel(ref: BackendRef, settings: BackendConfigStore): string {
   if (ccId) {
     const gateway = settings.ccgateways.find((item) => item.id === ccId);
     return gateway?.name || "Claude Gateway";
+  }
+  const sub2gwId = sub2gwIdFromRef(ref);
+  if (sub2gwId) {
+    const gateway = settings.sub2gws.find((item) => item.id === sub2gwId);
+    return gateway?.name || "Sub2API 网关";
   }
   return backendLabel(refKind(ref));
 }

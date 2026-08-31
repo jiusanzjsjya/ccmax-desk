@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { ccgatewayRef, customRef } from "@/lib/backends/kinds";
+import { ccgatewayRef, customRef, sub2gwRef } from "@/lib/backends/kinds";
 import { useI18n } from "@/lib/i18n/context";
 
 type SingletonKind = "sub2api" | "newapi" | "oneapi";
@@ -35,6 +35,16 @@ type CcGatewayView = {
   configured: boolean;
 };
 
+type Sub2GwView = {
+  id: string;
+  ref: string;
+  name: string;
+  baseUrl: string;
+  adminEmail: string;
+  hasPassword: boolean;
+  configured: boolean;
+};
+
 type BackendConfig = {
   defaultBackend: string;
   enabled: string[];
@@ -44,6 +54,7 @@ type BackendConfig = {
   oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string; hasApiKey: boolean };
   customs: CustomGatewayView[];
   ccgateways: CcGatewayView[];
+  sub2gws: Sub2GwView[];
 };
 
 type TokenInputs = {
@@ -54,9 +65,10 @@ type TokenInputs = {
   oneapiApiKey: string;
   customs: Record<string, string>;
   ccgateways: Record<string, string>;
+  sub2gws: Record<string, string>;
 };
 
-const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {}, ccgateways: {} };
+const emptyTokens: TokenInputs = { sub2api: "", newapi: "", oneapi: "", newapiApiKey: "", oneapiApiKey: "", customs: {}, ccgateways: {}, sub2gws: {} };
 
 /**
  * A client-side gateway id. `crypto.randomUUID` only exists in a secure context
@@ -106,6 +118,7 @@ export default function BackendConfigPanel() {
         ...payload,
         customs: Array.isArray(payload.customs) ? payload.customs : [],
         ccgateways: Array.isArray(payload.ccgateways) ? payload.ccgateways : [],
+        sub2gws: Array.isArray(payload.sub2gws) ? payload.sub2gws : [],
       });
       setTokens(emptyTokens);
     } catch {
@@ -148,13 +161,23 @@ export default function BackendConfigPanel() {
     setTokens((current) => ({ ...current, ccgateways: { ...current.ccgateways, [id]: value } }));
   }
 
+  function patchSub2Gw(id: string, value: Partial<Sub2GwView>) {
+    setConfig((current) =>
+      current ? { ...current, sub2gws: current.sub2gws.map((gateway) => (gateway.id === id ? { ...gateway, ...value } : gateway)) } : current,
+    );
+  }
+
+  function setSub2GwPassword(id: string, value: string) {
+    setTokens((current) => ({ ...current, sub2gws: { ...current.sub2gws, [id]: value } }));
+  }
+
   function toggleEnabled(ref: string, on: boolean) {
     setConfig((current) => {
       if (!current) return current;
       const set = new Set(current.enabled);
       if (on) set.add(ref);
       else set.delete(ref);
-      return { ...current, enabled: orderRefs(set, current.customs, current.ccgateways) };
+      return { ...current, enabled: orderRefs(set, current.customs, current.ccgateways, current.sub2gws) };
     });
   }
 
@@ -217,6 +240,37 @@ export default function BackendConfigPanel() {
     });
   }
 
+  function addSub2Gw() {
+    const id = newGatewayId();
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            sub2gws: [
+              ...current.sub2gws,
+              { id, ref: sub2gwRef(id), name: t("Sub2API 网关"), baseUrl: "", adminEmail: "", hasPassword: false, configured: false },
+            ],
+          }
+        : current,
+    );
+    setSub2GwPassword(id, "");
+  }
+
+  function removeSub2Gw(id: string) {
+    setConfig((current) => {
+      if (!current) return current;
+      const ref = sub2gwRef(id);
+      const sub2gws = current.sub2gws.filter((gateway) => gateway.id !== id);
+      const enabled = current.enabled.filter((value) => value !== ref);
+      const defaultBackend = current.defaultBackend === ref ? enabled[0] ?? "sub2api" : current.defaultBackend;
+      return { ...current, sub2gws, enabled, defaultBackend };
+    });
+    setTokens((current) => {
+      const { [id]: _dropped, ...rest } = current.sub2gws;
+      return { ...current, sub2gws: rest };
+    });
+  }
+
   async function save() {
     if (!config) return;
     setSaving(true);
@@ -261,6 +315,13 @@ export default function BackendConfigPanel() {
           vendorEmail: gateway.vendorEmail,
           groupId: gateway.groupId,
           ...(tokens.ccgateways[gateway.id] ? { vendorPassword: tokens.ccgateways[gateway.id] } : {}),
+        })),
+        sub2gws: config.sub2gws.map((gateway) => ({
+          id: gateway.id,
+          name: gateway.name,
+          baseUrl: gateway.baseUrl,
+          adminEmail: gateway.adminEmail,
+          ...(tokens.sub2gws[gateway.id] ? { adminPassword: tokens.sub2gws[gateway.id] } : {}),
         })),
       };
 
@@ -321,6 +382,9 @@ export default function BackendConfigPanel() {
               ))}
               {config.ccgateways.map((gateway) => (
                 <option key={gateway.id} value={gateway.ref}>{gateway.name || t("Claude Gateway")}</option>
+              ))}
+              {config.sub2gws.map((gateway) => (
+                <option key={gateway.id} value={gateway.ref}>{gateway.name || t("Sub2API 网关")}</option>
               ))}
             </select>
             <div className="settings-panel">
@@ -502,6 +566,58 @@ export default function BackendConfigPanel() {
             )}
           </div>
 
+          <div className="gateway-section">
+            <div className="management-heading">
+              <div>
+                <p className="management-kicker">{t("Sub2API 网关（账号密码鉴权，可多个）")}</p>
+                <p className="management-help">{t("与主 Sub2API 同款软件，但用管理员邮箱+密码登录换令牌（不用长效 admin key）。主要用于上 OpenAI Key：把该网关分配给用户后，其上 key 即写入这里。")}</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={addSub2Gw} disabled={saving}>
+                {t("+ 添加 Sub2API 网关")}
+              </button>
+            </div>
+
+            {config.sub2gws.length ? (
+              <div className="management-grid">
+                {config.sub2gws.map((gateway) => (
+                  <div className="settings-panel" key={gateway.id}>
+                    <div className="flow-card-head">
+                      <p className="management-kicker">{gateway.name || t("Sub2API 网关")}</p>
+                      <span className={`account-status ${gateway.configured ? "is-alive" : "is-dead"}`}>{gateway.configured ? t("已配置") : t("未配置")}</span>
+                    </div>
+                    <Field label={t("名称")}>
+                      <input className="text-input" value={gateway.name} onChange={(e) => patchSub2Gw(gateway.id, { name: e.target.value })} placeholder={t("例如 站点-A")} disabled={saving} />
+                    </Field>
+                    <Field label={t("网关地址 Base URL")}>
+                      <input className="text-input" value={gateway.baseUrl} onChange={(e) => patchSub2Gw(gateway.id, { baseUrl: e.target.value })} placeholder="https://sub2.example.com" disabled={saving} />
+                    </Field>
+                    <Field label={t("管理员邮箱")}>
+                      <input className="text-input" value={gateway.adminEmail} onChange={(e) => patchSub2Gw(gateway.id, { adminEmail: e.target.value })} placeholder="admin@example.com" autoComplete="off" disabled={saving} />
+                    </Field>
+                    <Field label={t("管理员密码")}>
+                      <TokenInput has={gateway.hasPassword} value={tokens.sub2gws[gateway.id] ?? ""} onChange={(v) => setSub2GwPassword(gateway.id, v)} disabled={saving} />
+                    </Field>
+                    <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
+                      <span>{t("启用该网关")}</span>
+                      <input
+                        type="checkbox"
+                        checked={config.enabled.includes(gateway.ref)}
+                        disabled={saving}
+                        onChange={(event) => toggleEnabled(gateway.ref, event.target.checked)}
+                      />
+                      <i aria-hidden="true" />
+                    </label>
+                    <button className="secondary-button" type="button" onClick={() => removeSub2Gw(gateway.id)} disabled={saving}>
+                      {t("移除该网关")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">{t("还没有 Sub2API 网关，点「添加 Sub2API 网关」新增。")}</p>
+            )}
+          </div>
+
           <div className="wizard-actions">
             <button className="oauth-button" type="button" onClick={() => void save()} disabled={saving}>
               {saving ? t("保存中...") : t("保存后端配置")}
@@ -517,11 +633,12 @@ export default function BackendConfigPanel() {
 }
 
 /** Keep enabled refs in a stable order: singletons first, then gateways as listed. */
-function orderRefs(refs: Set<string>, customs: CustomGatewayView[], ccgateways: CcGatewayView[]): string[] {
+function orderRefs(refs: Set<string>, customs: CustomGatewayView[], ccgateways: CcGatewayView[], sub2gws: Sub2GwView[]): string[] {
   const ordered: string[] = [];
   for (const { kind } of SINGLETONS) if (refs.has(kind)) ordered.push(kind);
   for (const gateway of customs) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
   for (const gateway of ccgateways) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
+  for (const gateway of sub2gws) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
   return ordered;
 }
 
