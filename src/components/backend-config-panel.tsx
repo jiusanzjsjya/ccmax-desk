@@ -42,7 +42,7 @@ type Sub2GwView = {
   baseUrl: string;
   adminEmail: string;
   hasPassword: boolean;
-  openaiGroupId: number | null;
+  openaiGroupIds: number[];
   configured: boolean;
 };
 
@@ -50,7 +50,7 @@ type BackendConfig = {
   defaultBackend: string;
   enabled: string[];
   configured: Record<SingletonKind, boolean>;
-  sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null; openaiGroupId: number | null };
+  sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null; openaiGroupIds: number[] };
   newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string; hasApiKey: boolean };
   oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string; hasApiKey: boolean };
   customs: CustomGatewayView[];
@@ -94,6 +94,8 @@ export default function BackendConfigPanel() {
   const router = useRouter();
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [tokens, setTokens] = useState<TokenInputs>(emptyTokens);
+  // Raw comma-separated group-id text while editing (parsed into config on change).
+  const [groupText, setGroupText] = useState<{ sub2api: string; sub2gws: Record<string, string> }>({ sub2api: "", sub2gws: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -115,13 +117,18 @@ export default function BackendConfigPanel() {
         setError(t("读取后端配置失败。"));
         return;
       }
+      const sub2gws = Array.isArray(payload.sub2gws) ? payload.sub2gws : [];
       setConfig({
         ...payload,
         customs: Array.isArray(payload.customs) ? payload.customs : [],
         ccgateways: Array.isArray(payload.ccgateways) ? payload.ccgateways : [],
-        sub2gws: Array.isArray(payload.sub2gws) ? payload.sub2gws : [],
+        sub2gws,
       });
       setTokens(emptyTokens);
+      setGroupText({
+        sub2api: (payload.sub2api.openaiGroupIds ?? []).join(", "),
+        sub2gws: Object.fromEntries(sub2gws.map((gw) => [gw.id, (gw.openaiGroupIds ?? []).join(", ")])),
+      });
     } catch {
       setError(t("无法读取后端配置。"));
     } finally {
@@ -249,7 +256,7 @@ export default function BackendConfigPanel() {
             ...current,
             sub2gws: [
               ...current.sub2gws,
-              { id, ref: sub2gwRef(id), name: t("Sub2API 网关"), baseUrl: "", adminEmail: "", hasPassword: false, openaiGroupId: null, configured: false },
+              { id, ref: sub2gwRef(id), name: t("Sub2API 网关"), baseUrl: "", adminEmail: "", hasPassword: false, openaiGroupIds: [], configured: false },
             ],
           }
         : current,
@@ -285,7 +292,7 @@ export default function BackendConfigPanel() {
         sub2api: {
           baseUrl: config.sub2api.baseUrl,
           proxyId: config.sub2api.proxyId,
-          openaiGroupId: config.sub2api.openaiGroupId,
+          openaiGroupIds: config.sub2api.openaiGroupIds,
           ...(tokens.sub2api ? { adminToken: tokens.sub2api } : {}),
         },
         newapi: {
@@ -323,7 +330,7 @@ export default function BackendConfigPanel() {
           name: gateway.name,
           baseUrl: gateway.baseUrl,
           adminEmail: gateway.adminEmail,
-          openaiGroupId: gateway.openaiGroupId,
+          openaiGroupIds: gateway.openaiGroupIds,
           ...(tokens.sub2gws[gateway.id] ? { adminPassword: tokens.sub2gws[gateway.id] } : {}),
         })),
       };
@@ -420,8 +427,18 @@ export default function BackendConfigPanel() {
               <Field label={t("默认代理 ID（可选）")}>
                 <input className="text-input" type="number" value={config.sub2api.proxyId ?? ""} onChange={(e) => patchPlatform("sub2api", { proxyId: e.target.value ? Number(e.target.value) : null })} placeholder={t("留空由 Sub2API 分配")} disabled={saving} />
               </Field>
-              <Field label={t("OpenAI 企业分组 ID（上 key 用，留空不进组）")}>
-                <input className="text-input" type="number" min={1} value={config.sub2api.openaiGroupId ?? ""} onChange={(e) => patchPlatform("sub2api", { openaiGroupId: e.target.value ? Math.max(1, Math.floor(Number(e.target.value))) : null })} placeholder={t("例如 1")} disabled={saving} />
+              <Field label={t("OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）")}>
+                <input
+                  className="text-input"
+                  value={groupText.sub2api}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setGroupText((g) => ({ ...g, sub2api: v }));
+                    patchPlatform("sub2api", { openaiGroupIds: parseGroupIds(v) });
+                  }}
+                  placeholder={t("例如 1, 4")}
+                  disabled={saving}
+                />
               </Field>
             </PlatformCard>
 
@@ -603,8 +620,18 @@ export default function BackendConfigPanel() {
                     <Field label={t("管理员密码")}>
                       <TokenInput has={gateway.hasPassword} value={tokens.sub2gws[gateway.id] ?? ""} onChange={(v) => setSub2GwPassword(gateway.id, v)} disabled={saving} />
                     </Field>
-                    <Field label={t("OpenAI 企业分组 ID（上 key 用，留空不进组）")}>
-                      <input className="text-input" type="number" min={1} value={gateway.openaiGroupId ?? ""} onChange={(e) => patchSub2Gw(gateway.id, { openaiGroupId: e.target.value ? Math.max(1, Math.floor(Number(e.target.value))) : null })} placeholder={t("例如 1")} disabled={saving} />
+                    <Field label={t("OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）")}>
+                      <input
+                        className="text-input"
+                        value={groupText.sub2gws[gateway.id] ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setGroupText((g) => ({ ...g, sub2gws: { ...g.sub2gws, [gateway.id]: v } }));
+                          patchSub2Gw(gateway.id, { openaiGroupIds: parseGroupIds(v) });
+                        }}
+                        placeholder={t("例如 1, 4")}
+                        disabled={saving}
+                      />
                     </Field>
                     <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
                       <span>{t("启用该网关")}</span>
@@ -649,6 +676,16 @@ function orderRefs(refs: Set<string>, customs: CustomGatewayView[], ccgateways: 
   for (const gateway of ccgateways) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
   for (const gateway of sub2gws) if (refs.has(gateway.ref)) ordered.push(gateway.ref);
   return ordered;
+}
+
+/** Parse a comma/space-separated group-id list into deduped positive integers. */
+function parseGroupIds(text: string): number[] {
+  const out = new Set<number>();
+  for (const part of text.split(/[,，\s]+/)) {
+    const value = Number(part.trim());
+    if (Number.isInteger(value) && value > 0) out.add(value);
+  }
+  return [...out];
 }
 
 function PlatformCard({ title, configured, children }: { title: string; configured: boolean; children: React.ReactNode }) {

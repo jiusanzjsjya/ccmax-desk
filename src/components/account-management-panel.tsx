@@ -48,6 +48,8 @@ type Settings = {
   openaiKeyMonitorThreshold: number;
   openaiUploadBaseUrl: string;
   openaiUploadConcurrency: number;
+  openaiUploadPriority: number;
+  openaiUploadValidateKey: boolean;
 };
 
 type PrefixItem = {
@@ -73,6 +75,8 @@ const emptySettings: Settings = {
   openaiKeyMonitorThreshold: 1,
   openaiUploadBaseUrl: "https://api.openai.com",
   openaiUploadConcurrency: 2500,
+  openaiUploadPriority: 1,
+  openaiUploadValidateKey: true,
 };
 
 /** In-app modal state — replaces window.confirm/prompt (blocked in embedded/WebView contexts). */
@@ -631,8 +635,21 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
               onChange={(e) => setSettings((c) => ({ ...c, openaiUploadConcurrency: clampInt(e.target.value, 1, 100000) }))}
               onBlur={() => void updateSetting("openaiUploadConcurrency", settings.openaiUploadConcurrency)}
             />
-            <p className="management-help">{t("上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置。")}</p>
+            <label className="field-label" htmlFor="openai-priority">{t("优先级（上 key 时写入）")}</label>
+            <input
+              id="openai-priority"
+              className="text-input"
+              type="number"
+              min={0}
+              max={100000}
+              value={settings.openaiUploadPriority}
+              disabled={!isSuperadmin || saving}
+              onChange={(e) => setSettings((c) => ({ ...c, openaiUploadPriority: clampInt(e.target.value, 0, 100000) }))}
+              onBlur={() => void updateSetting("openaiUploadPriority", settings.openaiUploadPriority)}
+            />
+            <p className="management-help">{t("上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置（可多个，逗号分隔）。")}</p>
           </div>
+          <SettingToggle label={t("上 Key 前校验有效性（拦截死 Key，不入池）")} checked={settings.openaiUploadValidateKey} disabled={!isSuperadmin || saving} onChange={(value) => updateSetting("openaiUploadValidateKey", value)} />
         </div>
         ) : null}
 

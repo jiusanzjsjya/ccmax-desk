@@ -69,6 +69,10 @@ export type SystemSettings = {
   openaiUploadBaseUrl: string;
   /** Concurrency (并发) set on each uploaded OpenAI key account. */
   openaiUploadConcurrency: number;
+  /** Priority (优先级) set on each uploaded OpenAI key account. */
+  openaiUploadPriority: number;
+  /** When true, validate each key against the upstream BEFORE creating it, and reject dead keys. */
+  openaiUploadValidateKey: boolean;
 };
 
 /**
@@ -165,8 +169,8 @@ export type Sub2ApiBackendConfig = {
   baseUrl: string;
   adminToken: string;
   proxyId: number | null;
-  /** Sub2API group id to attach uploaded OpenAI keys to on this instance; `null` = no group. */
-  openaiGroupId: number | null;
+  /** Sub2API group ids to attach uploaded OpenAI keys to on this instance; `[]` = no group. */
+  openaiGroupIds: number[];
 };
 export type RelayBackendConfig = {
   baseUrl: string;
@@ -245,6 +249,8 @@ const defaultSettings: SystemSettings = {
   // no group until the superadmin sets the enterprise group id.
   openaiUploadBaseUrl: "https://api.openai.com",
   openaiUploadConcurrency: 2500,
+  openaiUploadPriority: 1,
+  openaiUploadValidateKey: true,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -270,7 +276,7 @@ function defaultBackendConfig(): BackendConfigStore {
   const config: BackendConfigFields = {
     ccgateways: [],
     sub2gws: [],
-    sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null, openaiGroupId: null },
+    sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null, openaiGroupIds: [] },
     newapi: {
       baseUrl: env.NEWAPI_BASE_URL,
       adminToken: env.NEWAPI_ADMIN_TOKEN,
@@ -762,8 +768,8 @@ export type Sub2Gw = {
   adminEmail: string;
   /** AES-encrypted at rest (`enc:v1:…`); decrypted only inside the adapter. */
   adminPassword: string;
-  /** Sub2API group id to attach uploaded OpenAI keys to on this gateway; `null` = no group. */
-  openaiGroupId: number | null;
+  /** Sub2API group ids to attach uploaded OpenAI keys to on this gateway; `[]` = no group. */
+  openaiGroupIds: number[];
 };
 
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
@@ -773,7 +779,7 @@ export type CustomGatewayPatch = { id?: string; name?: string; url?: string; tok
 export type CcGatewayPatch = { id?: string; name?: string; baseUrl?: string; vendorEmail?: string; vendorPassword?: string; groupId?: string };
 
 /** One sub2gw in a PATCH: blank `adminPassword` keeps the stored (encrypted) one. */
-export type Sub2GwPatch = { id?: string; name?: string; baseUrl?: string; adminEmail?: string; adminPassword?: string; openaiGroupId?: number | null };
+export type Sub2GwPatch = { id?: string; name?: string; baseUrl?: string; adminEmail?: string; adminPassword?: string; openaiGroupIds?: number[] };
 
 export type BackendConfigPatch = {
   defaultBackend?: BackendRef;
@@ -872,9 +878,21 @@ function mergeSub2Gws(existing: Sub2Gw[], incoming: Sub2GwPatch[]): Sub2Gw[] {
       baseUrl: (patch.baseUrl ?? prev?.baseUrl ?? "").trim().replace(/\/$/, ""),
       adminEmail: (patch.adminEmail ?? prev?.adminEmail ?? "").trim(),
       adminPassword: nextPassword,
-      openaiGroupId: patch.openaiGroupId !== undefined ? patch.openaiGroupId : prev?.openaiGroupId ?? null,
+      openaiGroupIds: patch.openaiGroupIds !== undefined ? coerceGroupIds(patch.openaiGroupIds) : prev?.openaiGroupIds ?? [],
     };
   });
+}
+
+/** Keep only positive-integer group ids, deduped; migrate a legacy single id. */
+function coerceGroupIds(ids: unknown, legacySingle?: unknown): number[] {
+  const out = new Set<number>();
+  if (Array.isArray(ids)) {
+    for (const value of ids) if (typeof value === "number" && Number.isInteger(value) && value > 0) out.add(value);
+  }
+  if (out.size === 0 && typeof legacySingle === "number" && Number.isInteger(legacySingle) && legacySingle > 0) {
+    out.add(legacySingle);
+  }
+  return [...out];
 }
 
 export async function addAuditEvent(event: Omit<AuditEvent, "id" | "createdAt">) {
@@ -970,6 +988,11 @@ function normalizeBackends(value?: LegacyBackendConfig): BackendConfigStore {
   const sub2gws = normalizeSub2Gws(value.sub2gws);
 
   const sub2api = { ...defaults.sub2api, ...(value.sub2api || {}) };
+  // Migrate a legacy single openaiGroupId → openaiGroupIds[] and coerce shape.
+  sub2api.openaiGroupIds = coerceGroupIds(
+    (value.sub2api as { openaiGroupIds?: unknown } | undefined)?.openaiGroupIds,
+    (value.sub2api as { openaiGroupId?: unknown } | undefined)?.openaiGroupId,
+  );
   const newapi = { ...defaults.newapi, ...(value.newapi || {}) };
   const oneapi = { ...defaults.oneapi, ...(value.oneapi || {}) };
 
@@ -1003,7 +1026,7 @@ function normalizeSub2Gws(value: unknown): Sub2Gw[] {
       baseUrl: typeof gateway.baseUrl === "string" ? gateway.baseUrl : "",
       adminEmail: typeof gateway.adminEmail === "string" ? gateway.adminEmail : "",
       adminPassword: typeof gateway.adminPassword === "string" ? gateway.adminPassword : "",
-      openaiGroupId: typeof gateway.openaiGroupId === "number" ? gateway.openaiGroupId : null,
+      openaiGroupIds: coerceGroupIds(gateway.openaiGroupIds, gateway.openaiGroupId),
     }));
 }
 

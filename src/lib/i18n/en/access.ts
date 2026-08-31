@@ -13,6 +13,11 @@ export const access: Record<string, string> = {
     "These three are applied automatically on OpenAI key upload; find the group id in Sub2API's group management.",
   "上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置。":
     "Applied automatically on OpenAI key upload; the enterprise group id is set per gateway under Backends.",
+  "上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置（可多个，逗号分隔）。":
+    "Applied automatically on OpenAI key upload; enterprise group ids are set per gateway under Backends (multiple, comma-separated).",
+  "优先级（上 key 时写入）": "Priority (set on upload)",
+  "上 Key 前校验有效性（拦截死 Key，不入池）":
+    "Validate keys before upload (reject dead keys, keep them out of the pool)",
 
   // Heading
   "权限控制台": "Access console",

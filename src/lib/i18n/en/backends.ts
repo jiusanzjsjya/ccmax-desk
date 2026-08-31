@@ -2,6 +2,9 @@
 export const backends: Record<string, string> = {
   // OpenAI key upload — per-gateway group
   "OpenAI 企业分组 ID（上 key 用，留空不进组）": "OpenAI enterprise group ID (for key upload; blank = no group)",
+  "OpenAI 企业分组 ID（上 key 用，多个用逗号分隔，留空不进组）":
+    "OpenAI enterprise group IDs (for key upload; comma-separated; blank = no group)",
+  "例如 1, 4": "e.g. 1, 4",
 
   // Sub2API password-auth gateway
   "Sub2API 网关": "Sub2API Gateway",

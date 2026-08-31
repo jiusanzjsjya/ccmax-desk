@@ -311,6 +311,46 @@ export async function createOpenAIApiKeyAccount(
   return summarizeAccount(response);
 }
 
+/** Outcome of a pre-create key validation. `skip` = endpoint absent → caller may fail-open. */
+export type OpenAIKeyValidation = { alive: true } | { alive: false; skip: boolean; status?: number; message: string };
+
+/**
+ * Validate an OpenAI api-key WITHOUT creating an account: ask Sub2API to sync the
+ * upstream model catalog with it. A live key returns a catalog; a dead/invalid
+ * key fails (typically HTTP 502 from the upstream). Runs on Sub2API's egress, so
+ * it works where CCMax itself cannot reach OpenAI directly.
+ *
+ * VERIFIED endpoint (Wei-Shaw/sub2api account_handler.go → SyncUpstreamModelsPreview):
+ *   POST /api/v1/admin/accounts/models/sync-upstream-preview
+ *   body { platform, type, base_url?, api_key, model_mapping? }  // platform/type/api_key required
+ * `skip` is true only for 404/405 (endpoint missing on an older Sub2API).
+ */
+export async function validateOpenAIKey(
+  input: { apiKey: string; baseUrl?: string; modelMapping?: Record<string, string> },
+  cfg?: Sub2ApiRequestConfig,
+): Promise<OpenAIKeyValidation> {
+  const config = cfg ?? (await getSub2ApiConfig());
+  try {
+    await request<unknown>(config, "/api/v1/admin/accounts/models/sync-upstream-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        platform: "openai",
+        type: "apikey",
+        ...(input.baseUrl ? { base_url: input.baseUrl } : {}),
+        api_key: input.apiKey,
+        ...(input.modelMapping ? { model_mapping: input.modelMapping } : {}),
+      }),
+    });
+    return { alive: true };
+  } catch (error) {
+    if (error instanceof Sub2ApiError) {
+      const skip = error.status === 404 || error.status === 405;
+      return { alive: false, skip, status: error.status, message: error.message };
+    }
+    return { alive: false, skip: false, message: "Key 校验请求失败" };
+  }
+}
+
 /**
  * Count existing OpenAI api-key accounts whose name matches `prefix` (a `search`
  * substring). Used to continue the daily upload sequence (账号名-日期-NN) instead
