@@ -1,5 +1,8 @@
 /** English strings for the backends area. Populated during component conversion. */
 export const backends: Record<string, string> = {
+  // OpenAI key upload — per-gateway group
+  "OpenAI 企业分组 ID（上 key 用，留空不进组）": "OpenAI enterprise group ID (for key upload; blank = no group)",
+
   // Sub2API password-auth gateway
   "Sub2API 网关": "Sub2API Gateway",
   "Sub2API 网关（账号密码鉴权，可多个）": "Sub2API Gateway (account+password auth, multiple)",

@@ -65,6 +65,10 @@ export type SystemSettings = {
   openaiKeyMonitorIntervalMinutes: number;
   /** Consecutive unhealthy scans before a key is auto-disabled (1 = immediate). */
   openaiKeyMonitorThreshold: number;
+  /** OpenAI upstream base URL written into each uploaded key's credentials. */
+  openaiUploadBaseUrl: string;
+  /** Concurrency (并发) set on each uploaded OpenAI key account. */
+  openaiUploadConcurrency: number;
 };
 
 /**
@@ -157,7 +161,13 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-export type Sub2ApiBackendConfig = { baseUrl: string; adminToken: string; proxyId: number | null };
+export type Sub2ApiBackendConfig = {
+  baseUrl: string;
+  adminToken: string;
+  proxyId: number | null;
+  /** Sub2API group id to attach uploaded OpenAI keys to on this instance; `null` = no group. */
+  openaiGroupId: number | null;
+};
 export type RelayBackendConfig = {
   baseUrl: string;
   /** Authenticates the new-api/one-api admin API (Authorization: Bearer) to create channels. */
@@ -231,6 +241,10 @@ const defaultSettings: SystemSettings = {
   openaiKeyMonitorEnabled: false,
   openaiKeyMonitorIntervalMinutes: 5,
   openaiKeyMonitorThreshold: 1,
+  // OpenAI 上key defaults (superadmin-editable): official base URL, high concurrency,
+  // no group until the superadmin sets the enterprise group id.
+  openaiUploadBaseUrl: "https://api.openai.com",
+  openaiUploadConcurrency: 2500,
 };
 
 /** The connection/config-bearing slice of the backend store used for checks. */
@@ -256,7 +270,7 @@ function defaultBackendConfig(): BackendConfigStore {
   const config: BackendConfigFields = {
     ccgateways: [],
     sub2gws: [],
-    sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null },
+    sub2api: { baseUrl: env.SUB2API_BASE_URL, adminToken: env.SUB2API_ADMIN_TOKEN, proxyId: env.SUB2API_PROXY_ID ?? null, openaiGroupId: null },
     newapi: {
       baseUrl: env.NEWAPI_BASE_URL,
       adminToken: env.NEWAPI_ADMIN_TOKEN,
@@ -748,6 +762,8 @@ export type Sub2Gw = {
   adminEmail: string;
   /** AES-encrypted at rest (`enc:v1:…`); decrypted only inside the adapter. */
   adminPassword: string;
+  /** Sub2API group id to attach uploaded OpenAI keys to on this gateway; `null` = no group. */
+  openaiGroupId: number | null;
 };
 
 /** One gateway in a PATCH: `id` present = edit existing (blank token keeps stored). */
@@ -757,7 +773,7 @@ export type CustomGatewayPatch = { id?: string; name?: string; url?: string; tok
 export type CcGatewayPatch = { id?: string; name?: string; baseUrl?: string; vendorEmail?: string; vendorPassword?: string; groupId?: string };
 
 /** One sub2gw in a PATCH: blank `adminPassword` keeps the stored (encrypted) one. */
-export type Sub2GwPatch = { id?: string; name?: string; baseUrl?: string; adminEmail?: string; adminPassword?: string };
+export type Sub2GwPatch = { id?: string; name?: string; baseUrl?: string; adminEmail?: string; adminPassword?: string; openaiGroupId?: number | null };
 
 export type BackendConfigPatch = {
   defaultBackend?: BackendRef;
@@ -856,6 +872,7 @@ function mergeSub2Gws(existing: Sub2Gw[], incoming: Sub2GwPatch[]): Sub2Gw[] {
       baseUrl: (patch.baseUrl ?? prev?.baseUrl ?? "").trim().replace(/\/$/, ""),
       adminEmail: (patch.adminEmail ?? prev?.adminEmail ?? "").trim(),
       adminPassword: nextPassword,
+      openaiGroupId: patch.openaiGroupId !== undefined ? patch.openaiGroupId : prev?.openaiGroupId ?? null,
     };
   });
 }
@@ -986,6 +1003,7 @@ function normalizeSub2Gws(value: unknown): Sub2Gw[] {
       baseUrl: typeof gateway.baseUrl === "string" ? gateway.baseUrl : "",
       adminEmail: typeof gateway.adminEmail === "string" ? gateway.adminEmail : "",
       adminPassword: typeof gateway.adminPassword === "string" ? gateway.adminPassword : "",
+      openaiGroupId: typeof gateway.openaiGroupId === "number" ? gateway.openaiGroupId : null,
     }));
 }
 

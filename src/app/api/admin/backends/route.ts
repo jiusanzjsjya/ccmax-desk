@@ -21,6 +21,7 @@ const patchSchema = z.object({
       baseUrl: z.string().trim().max(300).optional(),
       adminToken: z.string().max(4000).optional(),
       proxyId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
+      openaiGroupId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
     })
     .optional(),
   newapi: z
@@ -75,6 +76,7 @@ const patchSchema = z.object({
         baseUrl: z.string().trim().max(300).optional(),
         adminEmail: z.string().trim().max(200).optional(),
         adminPassword: z.string().max(400).optional(),
+        openaiGroupId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
       }),
     )
     .max(20)
@@ -97,7 +99,7 @@ export async function GET() {
       oneapi: isBackendRefConfigured("oneapi", backends),
     },
     // Tokens are never returned; only whether they are set.
-    sub2api: { baseUrl: backends.sub2api.baseUrl, hasAdminToken: Boolean(backends.sub2api.adminToken), proxyId: backends.sub2api.proxyId },
+    sub2api: { baseUrl: backends.sub2api.baseUrl, hasAdminToken: Boolean(backends.sub2api.adminToken), proxyId: backends.sub2api.proxyId, openaiGroupId: backends.sub2api.openaiGroupId },
     newapi: {
       baseUrl: backends.newapi.baseUrl,
       hasAdminToken: Boolean(backends.newapi.adminToken),
@@ -141,6 +143,7 @@ export async function GET() {
       baseUrl: gateway.baseUrl,
       adminEmail: gateway.adminEmail,
       hasPassword: Boolean(gateway.adminPassword),
+      openaiGroupId: gateway.openaiGroupId,
       configured: isBackendRefConfigured(sub2gwRef(gateway.id), backends),
     })),
   });

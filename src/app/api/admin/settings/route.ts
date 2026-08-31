@@ -18,6 +18,8 @@ const settingsSchema = z.object({
   openaiKeyMonitorEnabled: z.boolean().optional(),
   openaiKeyMonitorIntervalMinutes: z.coerce.number().int().min(1).max(1440).optional(),
   openaiKeyMonitorThreshold: z.coerce.number().int().min(1).max(100).optional(),
+  openaiUploadBaseUrl: z.string().trim().max(300).optional(),
+  openaiUploadConcurrency: z.coerce.number().int().min(1).max(100000).optional(),
 });
 
 export async function GET() {

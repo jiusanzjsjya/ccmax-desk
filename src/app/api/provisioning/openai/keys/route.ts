@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { canUploadKey, effectiveTargetBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { recordPoolOwnership } from "@/lib/account-store";
+import { getOpenAIUploadGroupId } from "@/lib/backend-config";
 import { resolveOpenAIConfig } from "@/lib/backends/registry";
 import {
   countOpenAIAccountsByPrefix,
@@ -16,10 +17,10 @@ export const dynamic = "force-dynamic";
 
 // 授权上key: batch-upload OpenAI upstream accounts by API key. Targets the
 // caller's assigned platform — the primary Sub2API (admin key) OR a password-auth
-// Sub2API 网关 (sub2gw); other platforms are rejected. The upstream base_url is
-// fixed to OpenAI's official API. Each account is named
-// `<登录账号名>-<YYYYMMDD>-<NN>`, continuing the day's sequence on that instance.
-const OPENAI_BASE_URL = "https://api.openai.com/v1";
+// Sub2API 网关 (sub2gw); other platforms are rejected. The upstream base_url,
+// concurrency (并发) and target group are superadmin-configured system settings.
+// Each account is named `<登录账号名>-<YYYYMMDD>-<NN>`, continuing the day's
+// sequence on that instance.
 const MAX_KEYS = 10;
 
 // OpenAI secret keys are `sk-...` (legacy, `sk-proj-...`, `sk-svcacct-...`),
@@ -58,6 +59,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  // Superadmin-configured upload defaults: base URL + concurrency are global; the
+  // target group is per-instance (each Sub2API / sub2gw has its own group id).
+  const settings = context.store.settings;
+  const groupId = await getOpenAIUploadGroupId(ref);
+  const groupIds = groupId != null ? [groupId] : [];
+
   // Name binding: <登录账号名>-<YYYYMMDD>-<NN>. Continue the day's sequence by
   // counting accounts already named with this prefix on the target instance
   // (best-effort: fall back to 01 if the count lookup fails).
@@ -82,7 +89,16 @@ export async function POST(request: Request) {
     const name = `${prefix}${String(startIndex + seq).padStart(2, "0")}`;
     seq += 1;
     try {
-      const account = await createOpenAIApiKeyAccount({ name, apiKey, baseUrl: OPENAI_BASE_URL }, config);
+      const account = await createOpenAIApiKeyAccount(
+        {
+          name,
+          apiKey,
+          baseUrl: settings.openaiUploadBaseUrl || undefined,
+          concurrency: settings.openaiUploadConcurrency,
+          groupIds,
+        },
+        config,
+      );
 
       if (account?.id != null) {
         await recordPoolOwnership({

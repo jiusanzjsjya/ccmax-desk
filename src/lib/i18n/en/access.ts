@@ -5,6 +5,14 @@ export const access: Record<string, string> = {
   "监控巡检周期（分钟）": "Monitor scan interval (minutes)",
   "连续异常禁用阈值（次，1=立即）": "Consecutive-error threshold to disable (1 = immediate)",
   "监控内置运行，改动即时生效；仅超管可见可改。": "The monitor runs built-in; changes take effect immediately. Superadmin only.",
+  "OpenAI 上 Key 配置": "OpenAI key upload config",
+  "OpenAI Base URL": "OpenAI Base URL",
+  "并发数（RPM，上 key 时写入）": "Concurrency (RPM, set on upload)",
+  "企业分组 ID（Sub2API 分组号，留空不进组）": "Enterprise group ID (Sub2API group id; blank = no group)",
+  "上 OpenAI Key 时自动带上这三项；分组号在 Sub2API 分组管理里查看。":
+    "These three are applied automatically on OpenAI key upload; find the group id in Sub2API's group management.",
+  "上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置。":
+    "Applied automatically on OpenAI key upload; the enterprise group id is set per gateway under Backends.",
 
   // Heading
   "权限控制台": "Access console",

@@ -57,6 +57,17 @@ export async function getSub2Gw(id: string): Promise<Sub2Gw | null> {
   return sub2gws.find((gateway) => gateway.id === id) ?? null;
 }
 
+/** The OpenAI upload group id configured on a given target (per-instance); `null` = no group. */
+export async function getOpenAIUploadGroupId(ref: BackendRef): Promise<number | null> {
+  const settings = await getBackendSettings();
+  if (refKind(ref) === "sub2gw") {
+    const id = sub2gwIdFromRef(ref);
+    const gateway = id ? settings.sub2gws.find((item) => item.id === id) : null;
+    return gateway?.openaiGroupId ?? null;
+  }
+  return settings.sub2api.openaiGroupId ?? null;
+}
+
 export async function isBackendConfigured(ref: BackendRef): Promise<boolean> {
   return isBackendRefConfigured(ref, await getBackendSettings());
 }

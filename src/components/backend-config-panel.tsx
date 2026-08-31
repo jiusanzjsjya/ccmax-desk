@@ -42,6 +42,7 @@ type Sub2GwView = {
   baseUrl: string;
   adminEmail: string;
   hasPassword: boolean;
+  openaiGroupId: number | null;
   configured: boolean;
 };
 
@@ -49,7 +50,7 @@ type BackendConfig = {
   defaultBackend: string;
   enabled: string[];
   configured: Record<SingletonKind, boolean>;
-  sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null };
+  sub2api: { baseUrl: string; hasAdminToken: boolean; proxyId: number | null; openaiGroupId: number | null };
   newapi: { baseUrl: string; hasAdminToken: boolean; userId: string; channelType: number; models: string; hasApiKey: boolean };
   oneapi: { baseUrl: string; hasAdminToken: boolean; channelType: number; models: string; hasApiKey: boolean };
   customs: CustomGatewayView[];
@@ -248,7 +249,7 @@ export default function BackendConfigPanel() {
             ...current,
             sub2gws: [
               ...current.sub2gws,
-              { id, ref: sub2gwRef(id), name: t("Sub2API 网关"), baseUrl: "", adminEmail: "", hasPassword: false, configured: false },
+              { id, ref: sub2gwRef(id), name: t("Sub2API 网关"), baseUrl: "", adminEmail: "", hasPassword: false, openaiGroupId: null, configured: false },
             ],
           }
         : current,
@@ -284,6 +285,7 @@ export default function BackendConfigPanel() {
         sub2api: {
           baseUrl: config.sub2api.baseUrl,
           proxyId: config.sub2api.proxyId,
+          openaiGroupId: config.sub2api.openaiGroupId,
           ...(tokens.sub2api ? { adminToken: tokens.sub2api } : {}),
         },
         newapi: {
@@ -321,6 +323,7 @@ export default function BackendConfigPanel() {
           name: gateway.name,
           baseUrl: gateway.baseUrl,
           adminEmail: gateway.adminEmail,
+          openaiGroupId: gateway.openaiGroupId,
           ...(tokens.sub2gws[gateway.id] ? { adminPassword: tokens.sub2gws[gateway.id] } : {}),
         })),
       };
@@ -416,6 +419,9 @@ export default function BackendConfigPanel() {
               </Field>
               <Field label={t("默认代理 ID（可选）")}>
                 <input className="text-input" type="number" value={config.sub2api.proxyId ?? ""} onChange={(e) => patchPlatform("sub2api", { proxyId: e.target.value ? Number(e.target.value) : null })} placeholder={t("留空由 Sub2API 分配")} disabled={saving} />
+              </Field>
+              <Field label={t("OpenAI 企业分组 ID（上 key 用，留空不进组）")}>
+                <input className="text-input" type="number" min={1} value={config.sub2api.openaiGroupId ?? ""} onChange={(e) => patchPlatform("sub2api", { openaiGroupId: e.target.value ? Math.max(1, Math.floor(Number(e.target.value))) : null })} placeholder={t("例如 1")} disabled={saving} />
               </Field>
             </PlatformCard>
 
@@ -596,6 +602,9 @@ export default function BackendConfigPanel() {
                     </Field>
                     <Field label={t("管理员密码")}>
                       <TokenInput has={gateway.hasPassword} value={tokens.sub2gws[gateway.id] ?? ""} onChange={(v) => setSub2GwPassword(gateway.id, v)} disabled={saving} />
+                    </Field>
+                    <Field label={t("OpenAI 企业分组 ID（上 key 用，留空不进组）")}>
+                      <input className="text-input" type="number" min={1} value={gateway.openaiGroupId ?? ""} onChange={(e) => patchSub2Gw(gateway.id, { openaiGroupId: e.target.value ? Math.max(1, Math.floor(Number(e.target.value))) : null })} placeholder={t("例如 1")} disabled={saving} />
                     </Field>
                     <label className={`setting-toggle ${saving ? "is-disabled" : ""}`}>
                       <span>{t("启用该网关")}</span>

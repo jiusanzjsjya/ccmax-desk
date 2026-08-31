@@ -46,6 +46,8 @@ type Settings = {
   openaiKeyMonitorEnabled: boolean;
   openaiKeyMonitorIntervalMinutes: number;
   openaiKeyMonitorThreshold: number;
+  openaiUploadBaseUrl: string;
+  openaiUploadConcurrency: number;
 };
 
 type PrefixItem = {
@@ -69,6 +71,8 @@ const emptySettings: Settings = {
   openaiKeyMonitorEnabled: false,
   openaiKeyMonitorIntervalMinutes: 5,
   openaiKeyMonitorThreshold: 1,
+  openaiUploadBaseUrl: "https://api.openai.com",
+  openaiUploadConcurrency: 2500,
 };
 
 /** In-app modal state — replaces window.confirm/prompt (blocked in embedded/WebView contexts). */
@@ -602,6 +606,32 @@ export default function AccountManagementPanel({ role }: AccountManagementPanelP
               onBlur={() => void updateSetting("openaiKeyMonitorThreshold", settings.openaiKeyMonitorThreshold)}
             />
             <p className="management-help">{t("监控内置运行，改动即时生效；仅超管可见可改。")}</p>
+          </div>
+          <div className="monitor-config">
+            <p className="management-kicker">{t("OpenAI 上 Key 配置")}</p>
+            <label className="field-label" htmlFor="openai-base-url">{t("OpenAI Base URL")}</label>
+            <input
+              id="openai-base-url"
+              className="text-input"
+              value={settings.openaiUploadBaseUrl}
+              disabled={!isSuperadmin || saving}
+              placeholder="https://api.openai.com"
+              onChange={(e) => setSettings((c) => ({ ...c, openaiUploadBaseUrl: e.target.value }))}
+              onBlur={() => void updateSetting("openaiUploadBaseUrl", settings.openaiUploadBaseUrl.trim())}
+            />
+            <label className="field-label" htmlFor="openai-concurrency">{t("并发数（RPM，上 key 时写入）")}</label>
+            <input
+              id="openai-concurrency"
+              className="text-input"
+              type="number"
+              min={1}
+              max={100000}
+              value={settings.openaiUploadConcurrency}
+              disabled={!isSuperadmin || saving}
+              onChange={(e) => setSettings((c) => ({ ...c, openaiUploadConcurrency: clampInt(e.target.value, 1, 100000) }))}
+              onBlur={() => void updateSetting("openaiUploadConcurrency", settings.openaiUploadConcurrency)}
+            />
+            <p className="management-help">{t("上 OpenAI Key 时自动带上；企业分组号在「多平台后端」里为每个网关单独配置。")}</p>
           </div>
         </div>
         ) : null}
