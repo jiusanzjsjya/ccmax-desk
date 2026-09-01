@@ -4,6 +4,7 @@ import { z } from "zod";
 import { canUploadKey, effectiveTargetBackend, getAccessContext, provisioningAccess } from "@/lib/access";
 import { recordPoolOwnership } from "@/lib/account-store";
 import { getOpenAIUploadGroupIds } from "@/lib/backend-config";
+import { probeOpenAIKey } from "@/lib/openai-probe";
 import { resolveOpenAIConfig } from "@/lib/backends/registry";
 import {
   countOpenAIAccountsByPrefix,
@@ -87,6 +88,19 @@ export async function POST(request: Request) {
       continue;
     }
 
+    // Pre-create probe: send a minimal "hi" with the key straight to its base_url.
+    // A conclusively-dead key is rejected here and NEVER creates an account.
+    let preConfirmedAlive = false;
+    if (settings.openaiUploadValidateKey) {
+      const probe = await probeOpenAIKey(apiKey, baseUrl);
+      if (probe.conclusive && !probe.alive) {
+        const head = probe.status ? `[${probe.status}] ` : "";
+        results.push({ key: maskKey(apiKey), ok: false, error: `校验未通过（死 Key），未入池：${head}${cleanMessage(probe.detail) || "密钥无效或已失效"}` });
+        continue;
+      }
+      preConfirmedAlive = probe.conclusive && probe.alive;
+    }
+
     const name = `${prefix}${String(startIndex + seq).padStart(2, "0")}`;
     seq += 1;
     try {
@@ -102,9 +116,9 @@ export async function POST(request: Request) {
         config,
       );
 
-      // Real liveness test THROUGH the account (the static model preview does not
-      // validate an OpenAI key). A conclusively-dead key is deleted, not kept.
-      if (settings.openaiUploadValidateKey && account?.id != null) {
+      // Fallback liveness test THROUGH the account, only when the pre-create probe
+      // could NOT confirm the key (e.g. no direct egress to OpenAI from this host).
+      if (settings.openaiUploadValidateKey && !preConfirmedAlive && account?.id != null) {
         const test = await testOpenAIAccount(account.id, config);
         if (test.conclusive && !test.alive) {
           await deleteAccount(account.id, config).catch((error) =>
