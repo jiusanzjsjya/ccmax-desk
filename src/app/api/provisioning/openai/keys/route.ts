@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 // caller's assigned platform — the primary Sub2API (admin key) OR a password-auth
 // Sub2API 网关 (sub2gw); other platforms are rejected. The upstream base_url,
 // concurrency (并发) and target group are superadmin-configured system settings.
-// Each account is named `<登录账号名>-<YYYYMMDD>-<NN>`, continuing the day's
+// Each account is named `<登录账号名>-<MMDD>-<NN>`, continuing the day's
 // sequence on that instance.
 const MAX_KEYS = 10;
 
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   const baseUrl = settings.openaiUploadBaseUrl || undefined;
   const groupIds = await getOpenAIUploadGroupIds(ref);
 
-  // Name binding: <登录账号名>-<YYYYMMDD>-<NN>. Continue the day's sequence by
+  // Name binding: <登录账号名>-<MMDD>-<NN>. Continue the day's sequence by
   // counting accounts already named with this prefix on the target instance
   // (best-effort: fall back to 01 if the count lookup fails).
   const accountName = sanitizeName(context.session.displayName || context.session.username);
@@ -227,13 +227,12 @@ function isGenericDetail(detail: string): boolean {
   return detail === "" || detail === "目标平台" || /请求失败（HTTP\s*\d+）/.test(detail);
 }
 
-/** Local-date stamp YYYYMMDD for the name binding. */
+/** Local-date stamp MMDD (month+day, no year) for the name binding. */
 function todayStamp() {
   const now = new Date();
-  const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
+  return `${m}${d}`;
 }
 
 /** Keep account names clean: collapse whitespace, drop the hyphen we delimit on. */
