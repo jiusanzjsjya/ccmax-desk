@@ -235,9 +235,13 @@ function todayStamp() {
   return `${m}${d}`;
 }
 
-/** Keep account names clean: collapse whitespace, drop the hyphen we delimit on. */
+/**
+ * Keep account names clean: strip whitespace but PRESERVE hyphens — the display
+ * name may use `-` as a meaningful separator, so it carries through into the
+ * account name for later distinction.
+ */
 function sanitizeName(raw: string) {
-  return raw.replace(/\s+/g, "").replace(/-/g, "").slice(0, 40) || "user";
+  return raw.replace(/\s+/g, "").slice(0, 40) || "user";
 }
 
 /** Redact a key for echoing back in results — head + tail only. */
