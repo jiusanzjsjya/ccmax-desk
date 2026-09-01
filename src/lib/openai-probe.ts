@@ -16,7 +16,14 @@ export type KeyProbe = { conclusive: boolean; alive: boolean; status?: number; d
 
 const PROBE_MODEL = "gpt-4o-mini";
 const PROBE_TIMEOUT_MS = 12_000;
-const INVALID_KEY_RE = /invalid[_ ]?api[_ ]?key|incorrect api key|invalid_authentication/i;
+/**
+ * A conclusively-dead key: bad auth OR no usable balance/quota OR a
+ * deactivated account. `insufficient_quota` / "no credits remaining" comes back
+ * as HTTP 429 but the key is useless, so it must count as dead — NOT a transient
+ * rate limit (`rate_limit_exceeded`, which has none of these markers).
+ */
+const DEAD_KEY_RE =
+  /invalid[_ ]?api[_ ]?key|incorrect api key|invalid_authentication|unauthoriz|insufficient_quota|no credits|exceeded your current quota|billing|account.*(deactivat|disabl|suspend)/i;
 
 export async function probeOpenAIKey(apiKey: string, baseUrl?: string): Promise<KeyProbe> {
   const base = (baseUrl || "https://api.openai.com").replace(/\/+$/, "");
@@ -39,11 +46,11 @@ export async function probeOpenAIKey(apiKey: string, baseUrl?: string): Promise<
   const text = await response.text().catch(() => "");
   const detail = extractMessage(text);
 
+  // Dead first (covers no-credits/insufficient_quota, which is a 429 but useless).
+  if (DEAD_KEY_RE.test(text)) return { conclusive: true, alive: false, status: response.status, detail };
   if (response.ok) return { conclusive: true, alive: true, status: response.status, detail: "" };
-  if (response.status === 429) return { conclusive: true, alive: true, status: 429, detail: "" }; // valid, just limited
   if (response.status === 401) return { conclusive: true, alive: false, status: 401, detail };
-  // 400/403/404 only count as dead when the body explicitly says the key is invalid.
-  if (INVALID_KEY_RE.test(text)) return { conclusive: true, alive: false, status: response.status, detail };
+  if (response.status === 429) return { conclusive: true, alive: true, status: 429, detail: "" }; // rate-limited but valid
   return { conclusive: false, alive: true, status: response.status, detail }; // ambiguous → inconclusive
 }
 

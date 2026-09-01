@@ -392,12 +392,13 @@ export async function testOpenAIAccount(
   }
 
   const text = redactMessage(await response.text().catch(() => ""));
-  // Clear OpenAI credential failure — e.g. "Incorrect API key provided",
-  // {"code":"invalid_api_key"}, 401/unauthorized.
-  const authFail = /incorrect api key|invalid[_ ]?api[_ ]?key|invalid_authentication|unauthoriz|authentication_error|no such key|account .*(deactivated|disabled|revoked)/i.test(text);
-  if (authFail) {
+  // A dead key: bad auth, OR no usable balance/quota ("no credits remaining" /
+  // insufficient_quota — key connects but is useless), OR a deactivated account.
+  const deadKey =
+    /incorrect api key|invalid[_ ]?api[_ ]?key|invalid_authentication|unauthoriz|authentication_error|no such key|insufficient_quota|no credits|exceeded your current quota|billing|account .*(deactivated|disabled|revoked|suspend)/i.test(text);
+  if (deadKey) {
     const m = text.match(/"message"\s*:\s*"([^"]{3,200})"/i) || text.match(/"error"\s*:\s*"([^"]{3,200})"/i);
-    return { conclusive: true, alive: false, detail: m ? m[1] : "Key 校验未通过（无效或已失效）" };
+    return { conclusive: true, alive: false, detail: m ? m[1] : "Key 校验未通过（无效/无余额/已停用）" };
   }
   return { conclusive: true, alive: true, detail: "" };
 }
