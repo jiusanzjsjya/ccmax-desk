@@ -437,12 +437,61 @@ npm run dev
 - Claude Code-only 分组按 Sub2API 的识别规则生效。
 - 非 Claude Code 请求不会因为仅携带一个普通 API Key 就被误判为官方客户端。
 
-## 14. 当前状态
+> 说明：上面第 2–9 节是项目**早期设计文档**，记录了对 Sub2API / Claude OAuth 的调研与最初的接入闭环，作为背景保留。项目实际已远超该范围，**当前实现以第 14–16 节为准**。
 
-当前代码已完成第一版 Sub2API Admin API 接入和本地 RBAC：超级管理员引导登录、管理员/普通用户账号登录、角色权限校验、系统开关、审计记录、生成 Claude 授权 URL、提交授权码、服务端兑换并创建 `anthropic/oauth` 账号。
+## 14. 当前状态（2026-09）
 
-本次 README 修订已经将项目目标改为：
+项目已从"单一的 Claude OAuth 登录验证台"演进为一套**多平台账号/Key 供给与治理控制台**。核心能力：
 
-> 通过服务端调用 Sub2API Admin API，完成获得授权的 Claude Code Max 账号接入和状态展示。
+- **认证与 RBAC**：环境超管引导 + 本地账号（超管/管理员/普通用户）登录，角色权限、系统开关、操作审计、站内弹窗。
+- **多平台后端**：统一配置 `sub2api / new-api / one-api / 自建网关(custom) / Claude Gateway(ccgateway) / 账号密码 Sub2API 网关(sub2gw)`，密钥/密码 AES 加密存储、接口脱敏；按账户绑定目标平台（`targetBackend`）。
+- **授权模块隔离**：`授权上号(Claude OAuth)` 与 `授权上 key(OpenAI)` 两个模块，超管按用户授权、默认拒；看板可见性与模块授权绑定。
+- **授权上号**：向导化生成槽位 → 官方 OAuth → 回执入池；强制前缀、出口代理（本地记账）等。
+- **授权上 key（OpenAI）**：批量导入、格式校验、命名 `显示名-MMDD-序号`、base_url/并发/优先级全局可配、企业分组按网关"按名勾选"（可多选）、**建前 + 建后双重死 Key 拦截**（含无效 key 与"无余额/配额耗尽"）。
+- **观测与治理**：账号池统揽（富列表/聚合/告警）、Key 使用额度看板、数据分析·预付结款、系统日志、前缀管理。
+- **内置 OpenAI Key 监控**：随服务自启，按间隔**只探本系统上传的 key**，主动 `/test` 探活，判死自动禁用并"抓包"（报错原文入日志与审计）。总开关默认关。
+- **体验**：中/英 i18n，浅/深/跟随系统主题，暖色调；纯 HTTP 部署下的安全上下文兜底。
 
-下一步应优先完成真实 Sub2API 环境联调、流程持久化和生产级账号存储，不再增加通用 `userinfo_endpoint` 逻辑。
+## 15. 功能全景（当前实现）
+
+**后端类型体系（`src/lib/backends/`）**：`kinds` + `registry` 分发，`PoolBackend`/`OAuthBroker` 抽象；实现 `sub2api`（OAuth broker，支持长效 admin key 与 JWT）、`relay`（new-api/one-api）、`custom`、`ccgateway`（vendor 登录换 JWT + import-rt）、`sub2gw`（账号密码登录换 JWT，打 Sub2API 原生接口，主用于上 key）。
+
+**主要 API 路由（`src/app/api/`）**：
+- 认证：`auth/admin/login`、`auth/logout`、`me`、`health`
+- 管理：`admin/users(/[id]/password)`、`admin/settings`、`admin/audit`、`admin/prefixes`、`admin/backends(/groups)`
+- 上号：`provisioning/claude/{start,complete,status,accounts}`、`provisioning/backends`、`provisioning/prefixes`
+- 上 key：`provisioning/openai/keys`（上传）、`provisioning/openai/usage`（额度/死活）
+- 代理：`provisioning/proxies(/[id]/test)`、`provisioning/egress-proxies(/[id])`
+- 账号池：`provisioning/pool(/ops,/platforms)`
+- 结算：`settlement/{entries(/[id]),summary}`
+
+**关键库**：`account-store`（本地 JSON 存储 + RBAC + 系统开关 + 归属 + 健康计数）、`access`（角色/模块/平台门禁）、`secret-box`（AES-GCM）、`sub2api`（Sub2API 客户端，可按实例参数化）、`openai-probe`（建前发 "hi" 探活）、`openai-key-monitor` + `instrumentation`（内置监控）、`settlement`、`provisioning-state`、`session`、`roles`。
+
+**面板（`src/components/`）**：`dashboard-shell`（导航/顶栏/概览）、`provisioning-panel`（上号）、`key-provisioning-panel`（上 key）、`key-usage-panel`（Key 额度）、`account-pool-panel` + `pool-ops-board`（账号池）、`backend-config-panel`（多平台后端）、`account-management-panel`（账号与权限/系统开关/前缀）、`egress-proxy-panel`、`settlement-panel`、`system-log-panel`、登录/主题/语言等。
+
+## 16. 项目历程（里程碑）
+
+按提交时间顺序归纳（每行对应一个或一组提交）：
+
+1. **登录台雏形**：Sub2API Admin API 接入闭环、页面 UI、账号登录与多平台配置、new-api/one-api 静态 API Key 渠道对齐。
+2. **控制台重构 + 主题**：控制台重构，浅/深/跟随系统主题，暖色调。
+3. **账号池统揽 P1–P3**：富列表 + 聚合条 + 过滤/自动刷新 → 逐账号额度/花费(5h/7d/30d) + 分组筛选 → 运维告警看板 + 规则引擎。
+4. **账号池隔离**：分平台选择、按上号人隔离（超管开关）。
+5. **Sub2API 长效 Admin Key**：`x-api-key` 按前缀路由，兼容静态 key 与登录 JWT。
+6. **上号体验**：去超管字样、国家搜索、自定义出口代理（粘贴自动识别、HTTP/SOCKS5）、强制前缀内联选择、固定左右两栏。
+7. **HTTP 部署修复**：Secure cookie 按 `APP_URL` 协议判定；非安全上下文的复制/网关添加兜底。
+8. **系统日志模块**、**数据分析·预付结款模块**。
+9. **超管权限开关**：普通用户的代理/平台/台账权限开关；**中/英 i18n**。
+10. **目标平台按账户绑定**：分账户上号/池视图锁定；前缀改名按归属限制；账号管理弹窗站内化。
+11. **ccgateway 后端**：对接自研 Claude Gateway 供应商网关（vendor 登录换 JWT + refresh_token 导入）。
+12. **出口代理模块**：本地代理库 + 账号计数 + 强制选代理；随后收紧为仅超管可用出口代理、管理/用户仅本地代理池。
+13. **授权上 key 模块（OpenAI）**：新增上 key + Key 使用额度看板 + `上号/上key` 模块授权隔离；账号退出与系统设置移到右上角顶栏。
+14. **账号密码 Sub2API 网关（sub2gw）**：不用长效 admin key，邮箱+密码登录换 JWT，多实例配置，主用于上 key。
+15. **内置 OpenAI Key 监控**：随服务自启，自动禁用死/报错 key。
+16. **上 key 配置化**：base_url/并发全局设置、企业分组按网关单独配（后升级为按名勾选、可多选）、优先级可配（默认 1）。
+17. **报错体验治理**：真实状态码 + 分类、去网关名、清除 `SUB2API_ADMIN_TOKEN` 误导文案、网关登录失败透出真因。
+18. **死 Key 拦截强化**：建前发 "hi" 探活 + 建后 `/test` 真实验活兜底；判死纳入"无效 key"与"无余额/配额耗尽(insufficient_quota)"，真限流放行；死的拒绝/删除、不入池。
+19. **命名规则**：`显示名-MMDD-序号`（去年份、保留显示名连字符作分隔）。
+20. **监控收敛**：从"扫全池被动读状态"改为"**只探本系统上传的 key** 的主动探活 + 抓包（报错入日志与审计），判死禁用"。
+
+> 变更以 Git 提交为准；本节为里程碑归纳，非逐条 changelog。
